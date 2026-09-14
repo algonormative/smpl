@@ -1,0 +1,25 @@
+[project]
+name = "smpl-plugin"
+version = "0.1.0"
+description = "smpl plugin — audio-plugin host as an smpl op, via Spotify's pedalboard. This task ships the BUILT-IN effects subset (no VST3/AU, no instrument path): `list` / `describe --json` over a descriptor schema (identity, format, version, bus layout, parameters with ranges + units, state hash, cacheable) and the effect entry path (audio in → wet audio out) with lineage and memoization."
+requires-python = ">=3.10"
+dependencies = ["smplstream", "numpy>=1.24", "soundfile>=0.12", "pedalboard>=0.9"]
+
+# Two-tier proof: its OWN isolated `uv tool install ./tools/smpl-plugin`, on PATH as
+# `smpl-plugin`, reachable as `smpl plugin`. Glue is PATH discovery, no dependency solving.
+[project.scripts]
+smpl-plugin = "smpl_plugin.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/smpl_plugin"]
+
+# Resolve the unpublished core package from the monorepo for the isolated install.
+[tool.uv.sources]
+smplstream = { path = "../../packages/smplstream", editable = true }
