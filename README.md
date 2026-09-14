@@ -168,7 +168,7 @@ composes the pipe, resolves only what's needed, and reads back the report.
 | `spectrogram` | annotated mel / CQT / HPSS spectrograms + waveform (PNG) |
 | `convert` | format / sample-rate / bit-depth conversion (new frame, own hash) |
 | `gain` `normalize` `limit` | level management: dB gain (pure), LUFS-normalize (+ true-peak ceiling), true-peak limit |
-| `maximize` `compress` | look-ahead brickwall limiting (drive + cap); downward compression |
+| `maximize` `compress` `sidechain` | look-ahead brickwall limiting (drive + cap); downward compression; duck a target under a trigger's transients (kick-vs-sub glue) |
 | `filter` `eq` `env` `fx` `slice` `select` | the edit filters + stream selection |
 | `automate` `variants` `stereoize` `widen` `spectral-match` | parameter motion over time; N baked closed→open filter variants of one source; mono→wide; M-S width; EQ toward a reference |
 | `pattern` | step-grid drum-loop DSL → smplmix session (velocity / pitch / swing / nudge) |
