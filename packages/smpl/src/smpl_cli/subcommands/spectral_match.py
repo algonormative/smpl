@@ -5,7 +5,9 @@ measure the source's, and apply a bounded corrective peaking-EQ chain that moves
 *balance* toward the reference's. Matches SHAPE, not level (both curves are mean-normalized
 first — leave loudness to ``smpl normalize``). Passthrough every input frame first, then append
 one wet `audio` frame (role ``<role>.wet``, ``op: spectral-match``) per selected audio frame.
-The full corrective curve is recorded in the wet frame's ``params``. DSP in ``smpl_analysis.edit``.
+The full corrective curve is recorded in the wet frame's ``params``, alongside the A/B spectra
+(``spectrum_db``: source before, reference, matched after) and the ``residual_db`` distance to
+the reference before vs after. DSP in ``smpl_analysis.edit``.
 
   smpl read loop.wav | smpl spectral-match --reference ref.wav --strength 0.8 | smpl normalize --lufs -12 | smpl write matched.wav
 """

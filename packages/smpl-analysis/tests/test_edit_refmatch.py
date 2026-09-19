@@ -230,6 +230,56 @@ def test_spectral_match_rejects_bad_params(tmp_path, monkeypatch):
         edit.apply_spectral_match(src, reference_path=str(ref_path), n_bands=0)
 
 
+def test_spectral_match_records_ab_spectra(tmp_path, monkeypatch):
+    """The wet frame carries the A/B block: source (before), reference, matched (after) — all
+    on the same band grid and all mean-normalized, so the three curves are comparable."""
+    monkeypatch.setenv("SMPL_CAS_DIR", str(tmp_path / "cas"))
+    src = _put_wav(_noise_shaped(tilt=0.0, seed=21), SR)
+    ref_path = tmp_path / "ref.wav"
+    sf.write(str(ref_path), _noise_shaped(tilt=6.0, seed=22), SR, format="WAV", subtype="FLOAT")
+
+    wet = edit.apply_spectral_match(src, reference_path=str(ref_path), strength=1.0,
+                                    max_correction_db=12.0)
+    spec = wet["params"]["spectrum_db"]
+    assert set(spec) == {"source", "reference", "matched"}
+    n = wet["params"]["n_bands"]
+    for key, curve in spec.items():
+        assert len(curve) == n, key
+        assert abs(float(np.mean(curve))) < 1e-6, key   # mean-normalized: balance, not level
+    assert set(wet["params"]["residual_db"]) == {"before", "after"}
+
+
+def test_spectral_match_residual_improves(tmp_path, monkeypatch):
+    """A/B proof: the matched target sits CLOSER to the reference than the source did."""
+    monkeypatch.setenv("SMPL_CAS_DIR", str(tmp_path / "cas"))
+    # same dull-source / bright-reference fixture as the balance test above
+    src = _put_wav(_noise_shaped(tilt=0.0, seed=1), SR)
+    ref_path = tmp_path / "ref.wav"
+    sf.write(str(ref_path), _noise_shaped(tilt=6.0, seed=2), SR, format="WAV", subtype="FLOAT")
+
+    wet = edit.apply_spectral_match(src, reference_path=str(ref_path), strength=1.0,
+                                    max_correction_db=12.0)
+    residual = wet["params"]["residual_db"]
+    assert residual["after"] < residual["before"]
+
+
+def test_spectral_match_zero_strength_ab_is_flat(tmp_path, monkeypatch):
+    """strength=0 applies no EQ, so the after-curve IS the before-curve and the residual to the
+    reference is unchanged — the A/B block can't manufacture an improvement."""
+    monkeypatch.setenv("SMPL_CAS_DIR", str(tmp_path / "cas"))
+    src = _put_wav(_noise_shaped(tilt=0.0, seed=23), SR)
+    ref_path = tmp_path / "ref.wav"
+    sf.write(str(ref_path), _noise_shaped(tilt=8.0, seed=24), SR, format="WAV", subtype="FLOAT")
+
+    wet = edit.apply_spectral_match(src, reference_path=str(ref_path), strength=0.0,
+                                    max_correction_db=24.0)
+    spec = wet["params"]["spectrum_db"]
+    for before, after in zip(spec["source"], spec["matched"]):
+        assert abs(after - before) < 1e-6
+    residual = wet["params"]["residual_db"]
+    assert abs(residual["after"] - residual["before"]) < 1e-6
+
+
 def _crest(x):
     return float(np.max(np.abs(x)) / (np.sqrt(np.mean(x ** 2)) + 1e-12))
 
