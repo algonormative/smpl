@@ -836,7 +836,10 @@ def apply_spectral_match(
     each (so absolute loudness is ignored — that is ``normalize``'s job), and applies a chain of
     peaking bands whose gains are ``strength × (ref − src)`` clamped to ``±max_correction_db``.
     Bands centered below ``protect_below_hz`` are forced to 0 dB so the sub/kick foundation is
-    left intact. The full corrective curve is recorded in ``params`` for auditability.
+    left intact. The full corrective curve is recorded in ``params`` for auditability, together
+    with the A/B spectra (``spectrum_db``: the target before, the reference, the target after —
+    all mean-normalized on the same band grid) and the ``residual_db`` before/after distances
+    to the reference, so a consumer can see what the match actually did.
     """
     import numpy as np
     import soundfile as sf
@@ -889,6 +892,24 @@ def apply_spectral_match(
         eq_bands.append({"freq_hz": round(fc, 1), "gain_db": round(gain, 2), "q": round(q, 3)})
 
     out = np.clip(out, -1.0, 1.0).astype("float32")
+
+    # A/B: measure the OUTPUT on the SAME band grid, mean-normalized like the other two curves,
+    # so a consumer can read the target's spectrum before vs after against the reference without
+    # re-analysing the audio. `residual_db` scores the distance to the reference (RMS over bands,
+    # dB) before and after — the single number that says whether the match helped.
+    out_mono = out.mean(axis=1) if out.ndim > 1 else out
+    out_db = _band_power_db(out_mono, sr, bands)
+    out_n = out_db - float(np.mean(out_db))
+    # Protected bands are pinned at 0 dB correction, so scoring them would dilute (understate)
+    # the improvement; if EVERY band is protected, score them all rather than divide by zero.
+    band_fcs = np.array([np.sqrt(lo * hi) for lo, hi in bands])
+    mask = band_fcs >= float(protect_below_hz)
+    if not mask.any():
+        mask = np.ones(len(bands), dtype=bool)
+
+    def _rms(curve):
+        return round(float(np.sqrt(np.mean(np.asarray(curve)[mask] ** 2))), 6)
+
     params = {
         "reference": os.path.basename(str(reference_path)),
         "strength": float(strength),
@@ -900,6 +921,14 @@ def apply_spectral_match(
         "band_centers_hz": centers,
         "correction_db": applied,
         "bands": eq_bands,
+        # band order is `band_centers_hz`; 6 dp keeps each curve's mean at 0 within 1e-6
+        # (2 dp, the house rounding for a single gain, would bias a 12-band mean by ~1e-3).
+        "spectrum_db": {
+            "source": [round(float(v), 6) for v in src_n],
+            "reference": [round(float(v), 6) for v in ref_n],
+            "matched": [round(float(v), 6) for v in out_n],
+        },
+        "residual_db": {"before": _rms(ref_n - src_n), "after": _rms(ref_n - out_n)},
         "sr_hz": sr,
     }
     return _emit_wet_audio(
