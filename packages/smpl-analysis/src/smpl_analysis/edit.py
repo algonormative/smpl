@@ -774,6 +774,10 @@ def apply_mono(audio_frame: dict) -> dict:
 # left to `normalize` (you don't want spectral-match also yanking the gain). A
 # `strength` (0..1) does partial matches, `max_correction_db` clamps each band, and
 # `protect_below_hz` leaves the sub alone (the references rarely want *more* sub).
+# `anchor_hz` swaps the mean for a PIVOT band: both curves read 0 there, so a source
+# much darker than the reference gets its mids/highs lifted instead of its (already
+# decent) low end cut — the mean of a dark curve sits low, which is what caused that
+# (vault-9s8c).
 # ---------------------------------------------------------------------------
 def _log_bands(lo_hz: float, hi_hz: float, n: int) -> list[tuple]:
     """``n`` log-spaced (geometric) band edges → list of ``(low_hz, high_hz)`` pairs."""
@@ -829,12 +833,17 @@ def apply_spectral_match(
     lo_hz: float = 30.0,
     hi_hz: float = 16000.0,
     protect_below_hz: float = 60.0,
+    anchor_hz: Optional[float] = None,
 ) -> dict:
     """Move the source's spectral balance toward ``reference_path``'s, returning a wet frame.
 
     Measures both signals' per-band power over an ``n_bands`` log-spaced grid, mean-normalizes
     each (so absolute loudness is ignored — that is ``normalize``'s job), and applies a chain of
     peaking bands whose gains are ``strength × (ref − src)`` clamped to ``±max_correction_db``.
+    ``anchor_hz`` replaces the mean with a PIVOT: both curves are offset so the band containing
+    that frequency reads 0, which holds a dark source's low end (its mean sits low, so
+    mean-normalizing cuts the lows instead of lifting the mids) and only ever corrects relative
+    to the pivot. Default (``None``) is the mean.
     Bands centered below ``protect_below_hz`` are forced to 0 dB so the sub/kick foundation is
     left intact. The full corrective curve is recorded in ``params`` for auditability, together
     with the A/B spectra (``spectrum_db``: the target before, the reference, the target after —
@@ -869,9 +878,22 @@ def apply_spectral_match(
     src_db = _band_power_db(src_mono, sr, bands)
     ref_db = _band_power_db(ref_mono, int(ref_sr), bands)
 
-    # Match BALANCE not level: remove each curve's mean before differencing.
-    src_n = src_db - float(np.mean(src_db))
-    ref_n = ref_db - float(np.mean(ref_db))
+    # Match BALANCE not level: remove each curve's reference level before differencing — the
+    # curve's own mean, or (anchor_hz) its level in the band containing the pivot frequency.
+    anchor_idx = None
+    if anchor_hz is not None:
+        anchor_idx = next((i for i, (lo, hi) in enumerate(bands)
+                           if lo <= float(anchor_hz) < hi), None)
+        if anchor_idx is None:
+            raise ValueError(
+                f"anchor_hz {anchor_hz} outside the band grid "
+                f"[{lo_hz}, {eff_hi:.0f}) (src sr {sr}, ref sr {int(ref_sr)})")
+
+    def _offset(curve):
+        return float(curve[anchor_idx]) if anchor_idx is not None else float(np.mean(curve))
+
+    src_n = src_db - _offset(src_db)
+    ref_n = ref_db - _offset(ref_db)
     delta = float(strength) * (ref_n - src_n)
     delta = np.clip(delta, -float(max_correction_db), float(max_correction_db))
 
@@ -893,13 +915,14 @@ def apply_spectral_match(
 
     out = np.clip(out, -1.0, 1.0).astype("float32")
 
-    # A/B: measure the OUTPUT on the SAME band grid, mean-normalized like the other two curves,
-    # so a consumer can read the target's spectrum before vs after against the reference without
-    # re-analysing the audio. `residual_db` scores the distance to the reference (RMS over bands,
-    # dB) before and after — the single number that says whether the match helped.
+    # A/B: measure the OUTPUT on the SAME band grid, normalized like the other two curves (same
+    # mean-or-anchor rule), so a consumer can read the target's spectrum before vs after against
+    # the reference without re-analysing the audio. `residual_db` scores the distance to the
+    # reference (RMS over bands, dB) before and after — the single number that says whether the
+    # match helped.
     out_mono = out.mean(axis=1) if out.ndim > 1 else out
     out_db = _band_power_db(out_mono, sr, bands)
-    out_n = out_db - float(np.mean(out_db))
+    out_n = out_db - _offset(out_db)
     # Protected bands are pinned at 0 dB correction, so scoring them would dilute (understate)
     # the improvement; if EVERY band is protected, score them all rather than divide by zero.
     band_fcs = np.array([np.sqrt(lo * hi) for lo, hi in bands])
@@ -916,6 +939,7 @@ def apply_spectral_match(
         "max_correction_db": float(max_correction_db),
         "n_bands": int(n_bands),
         "protect_below_hz": float(protect_below_hz),
+        "anchor_hz": None if anchor_hz is None else float(anchor_hz),
         "hi_hz_effective": round(eff_hi, 1),
         "ref_sr_hz": int(ref_sr),
         "band_centers_hz": centers,
@@ -931,6 +955,9 @@ def apply_spectral_match(
         "residual_db": {"before": _rms(ref_n - src_n), "after": _rms(ref_n - out_n)},
         "sr_hz": sr,
     }
+    if anchor_idx is not None:
+        # which band the pivot landed in — the one reading 0 dB in all three curves
+        params["anchor_band_hz"] = centers[anchor_idx]
     return _emit_wet_audio(
         out, sr, src_frame=audio_frame, op="spectral-match",
         op_version=SPECTRAL_MATCH_OP_VERSION, params=params,
