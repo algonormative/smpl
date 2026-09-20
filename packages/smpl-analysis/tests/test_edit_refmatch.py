@@ -228,6 +228,10 @@ def test_spectral_match_rejects_bad_params(tmp_path, monkeypatch):
         edit.apply_spectral_match(src, reference_path=str(ref_path), max_correction_db=-3.0)
     with pytest.raises(ValueError):
         edit.apply_spectral_match(src, reference_path=str(ref_path), n_bands=0)
+    with pytest.raises(ValueError):  # anchor below the grid's low edge — no band contains it
+        edit.apply_spectral_match(src, reference_path=str(ref_path), lo_hz=30.0, anchor_hz=10.0)
+    with pytest.raises(ValueError):  # anchor above the grid's effective high edge
+        edit.apply_spectral_match(src, reference_path=str(ref_path), hi_hz=16000.0, anchor_hz=20000.0)
 
 
 def test_spectral_match_records_ab_spectra(tmp_path, monkeypatch):
@@ -278,6 +282,46 @@ def test_spectral_match_zero_strength_ab_is_flat(tmp_path, monkeypatch):
         assert abs(after - before) < 1e-6
     residual = wet["params"]["residual_db"]
     assert abs(residual["after"] - residual["before"]) < 1e-6
+
+
+def test_spectral_match_anchor_holds_low_end(tmp_path, monkeypatch):
+    """A DARK source matched to a BRIGHT reference: mean-normalizing cuts the (decent) low end
+    because the dark curve's mean sits low; anchoring at the sub pivots on that band instead, so
+    the low end is held and only the mids/highs rise (vault-9s8c).
+
+    ``protect_below_hz=0.0`` in both runs — otherwise sub-protection, not the anchor, would be
+    what holds the low end.
+    """
+    monkeypatch.setenv("SMPL_CAS_DIR", str(tmp_path / "cas"))
+    src = _put_wav(_noise_shaped(tilt=-0.95, seed=31), SR)      # dark: highs rolled off
+    ref_path = tmp_path / "ref.wav"
+    sf.write(str(ref_path), _noise_shaped(tilt=10.0, seed=32), SR, format="WAV", subtype="FLOAT")
+
+    kw = dict(reference_path=str(ref_path), strength=1.0, max_correction_db=12.0,
+              protect_below_hz=0.0)
+    anchored = edit.apply_spectral_match(src, anchor_hz=45.0, **kw)
+    meaned = edit.apply_spectral_match(src, **kw)
+
+    # the pivot band (the one containing 45 Hz) is recorded and reads 0 in all three curves
+    params = anchored["params"]
+    assert params["anchor_hz"] == 45.0
+    k = params["band_centers_hz"].index(params["anchor_band_hz"])
+    assert abs(params["correction_db"][k]) < 1e-6
+    for curve in params["spectrum_db"].values():
+        assert abs(curve[k]) < 1e-6
+    assert "anchor_band_hz" not in meaned["params"] and meaned["params"]["anchor_hz"] is None
+
+    before, sr = _load(src)
+    a_mono = _load(anchored)[0].mean(axis=1)
+    m_mono = _load(meaned)[0].mean(axis=1)
+    b_mono = before.mean(axis=1)
+
+    sub_before = _band_db(b_mono, sr, 30, 60)
+    assert _band_db(a_mono, sr, 30, 60) >= sub_before - 0.5     # anchored: sub held
+    assert _band_db(a_mono, sr, 1000, 8000) > _band_db(b_mono, sr, 1000, 8000) + 1.0  # mids/highs up
+    # the bug this mode exists for: mean-normalization CUTS the dark source's low bands
+    assert meaned["params"]["correction_db"][k] < -1.0
+    assert _band_db(m_mono, sr, 30, 60) < sub_before - 1.0
 
 
 def _crest(x):
