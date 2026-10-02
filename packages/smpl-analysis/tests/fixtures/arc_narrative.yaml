@@ -1,0 +1,18 @@
+# Minimal narrative/v1 fixture for the arc overlay tests (original — not a real set).
+# Four anchors, seven beats; consecutive beats sharing an `anchor` are one anchor run.
+schema: narrative/v1
+set: test-arc
+structure: quiet-to-loud
+
+world:
+  setting: "A test bench. Two tones and a burst of noise."
+  materials: [tone, noise]
+
+beats:
+  - { id: open,   scene: "One quiet tone, alone.",              tension: 0.10, anchor: open }
+  - { id: settle, scene: "The tone holds; nothing else comes.", tension: 0.20, anchor: open }
+  - { id: layer,  scene: "A second voice joins underneath.",    tension: 0.45, anchor: build }
+  - { id: push,   scene: "The pair thicken and brighten.",      tension: 0.60, anchor: build }
+  - { id: wall,   scene: "Everything at once, flat out.",       tension: 0.95, anchor: peak }
+  - { id: hold,   scene: "The wall holds its ground.",          tension: 0.90, anchor: peak }
+  - { id: fall,   scene: "It drops away to almost nothing.",    tension: 0.15, anchor: fall }
