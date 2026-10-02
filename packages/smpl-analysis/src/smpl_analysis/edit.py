@@ -39,12 +39,14 @@ GAIN_OP_VERSION = "gain@1"
 NORMALIZE_OP_VERSION = "normalize@1"
 LIMIT_OP_VERSION = "limit@1"
 WIDEN_OP_VERSION = "widen@1"
+MONO_OP_VERSION = "mono@1"
 SPECTRAL_MATCH_OP_VERSION = "spectral-match@1"
 COMPRESS_OP_VERSION = "compress@1"
 CROP_OP_VERSION = "crop@1"
 REVERSE_OP_VERSION = "reverse@1"
 PITCH_OP_VERSION = "pitch@1"
 STRETCH_OP_VERSION = "stretch@1"
+LOOPIFY_OP_VERSION = "loopify@1"
 
 
 # ---------------------------------------------------------------------------
@@ -80,8 +82,13 @@ def _emit_wet_audio(
     op: str,
     op_version: str,
     params: dict,
+    role: Optional[str] = None,
 ) -> dict:
-    """CAS a processed (frames, ch) float32 array as WAV and return a wet `audio` frame."""
+    """CAS a processed (frames, ch) float32 array as WAV and return a wet `audio` frame.
+
+    ``role`` overrides the default ``<role>.wet`` — used by ops that emit SEVERAL wet frames
+    from one source (e.g. ``variants``) and so need a distinct role per output.
+    """
     import numpy as np
     import soundfile as sf
 
@@ -100,7 +107,7 @@ def _emit_wet_audio(
         sr=meta.get("sr", sr),
         ch=meta.get("ch", arr.shape[1]),
         dur=meta.get("dur", arr.shape[0] / sr if sr else 0.0),
-        role=_wet_role(src_frame),
+        role=role or _wet_role(src_frame),
         of=src_frame.get("id"),
         lineage=[src_frame["id"]] if src_frame.get("id") else None,
         op=op,
@@ -738,6 +745,25 @@ def apply_widen(
     )
 
 
+def apply_mono(audio_frame: dict) -> dict:
+    """Downmix to ONE channel by averaging the channels (sox ``channels 1``).
+
+    The narrow end of the stereo-image vocabulary and the bass bus's glue: averaging is
+    level-neutral for correlated material (identical channels come back at the same
+    amplitude) and it *guarantees* mono, which scaling the side channel (``widen`` with a
+    big negative gain) only ever approaches. Mono input passes through unchanged.
+    """
+    import numpy as np
+
+    data, sr = _load_audio(audio_frame)
+    ch_in = int(data.shape[1])
+    out = np.ascontiguousarray(data.astype("float64").mean(axis=1, keepdims=True), dtype="float32")
+    params = {"channels_in": ch_in, "channels_out": 1, "sr_hz": sr}
+    return _emit_wet_audio(
+        out, sr, src_frame=audio_frame, op="mono", op_version=MONO_OP_VERSION, params=params
+    )
+
+
 # ---------------------------------------------------------------------------
 # spectral-match — EQ the source toward a reference's spectral BALANCE.
 #
@@ -748,6 +774,10 @@ def apply_widen(
 # left to `normalize` (you don't want spectral-match also yanking the gain). A
 # `strength` (0..1) does partial matches, `max_correction_db` clamps each band, and
 # `protect_below_hz` leaves the sub alone (the references rarely want *more* sub).
+# `anchor_hz` swaps the mean for a PIVOT band: both curves read 0 there, so a source
+# much darker than the reference gets its mids/highs lifted instead of its (already
+# decent) low end cut — the mean of a dark curve sits low, which is what caused that
+# (vault-9s8c).
 # ---------------------------------------------------------------------------
 def _log_bands(lo_hz: float, hi_hz: float, n: int) -> list[tuple]:
     """``n`` log-spaced (geometric) band edges → list of ``(low_hz, high_hz)`` pairs."""
@@ -803,14 +833,22 @@ def apply_spectral_match(
     lo_hz: float = 30.0,
     hi_hz: float = 16000.0,
     protect_below_hz: float = 60.0,
+    anchor_hz: Optional[float] = None,
 ) -> dict:
     """Move the source's spectral balance toward ``reference_path``'s, returning a wet frame.
 
     Measures both signals' per-band power over an ``n_bands`` log-spaced grid, mean-normalizes
     each (so absolute loudness is ignored — that is ``normalize``'s job), and applies a chain of
     peaking bands whose gains are ``strength × (ref − src)`` clamped to ``±max_correction_db``.
+    ``anchor_hz`` replaces the mean with a PIVOT: both curves are offset so the band containing
+    that frequency reads 0, which holds a dark source's low end (its mean sits low, so
+    mean-normalizing cuts the lows instead of lifting the mids) and only ever corrects relative
+    to the pivot. Default (``None``) is the mean.
     Bands centered below ``protect_below_hz`` are forced to 0 dB so the sub/kick foundation is
-    left intact. The full corrective curve is recorded in ``params`` for auditability.
+    left intact. The full corrective curve is recorded in ``params`` for auditability, together
+    with the A/B spectra (``spectrum_db``: the target before, the reference, the target after —
+    all mean-normalized on the same band grid) and the ``residual_db`` before/after distances
+    to the reference, so a consumer can see what the match actually did.
     """
     import numpy as np
     import soundfile as sf
@@ -840,9 +878,22 @@ def apply_spectral_match(
     src_db = _band_power_db(src_mono, sr, bands)
     ref_db = _band_power_db(ref_mono, int(ref_sr), bands)
 
-    # Match BALANCE not level: remove each curve's mean before differencing.
-    src_n = src_db - float(np.mean(src_db))
-    ref_n = ref_db - float(np.mean(ref_db))
+    # Match BALANCE not level: remove each curve's reference level before differencing — the
+    # curve's own mean, or (anchor_hz) its level in the band containing the pivot frequency.
+    anchor_idx = None
+    if anchor_hz is not None:
+        anchor_idx = next((i for i, (lo, hi) in enumerate(bands)
+                           if lo <= float(anchor_hz) < hi), None)
+        if anchor_idx is None:
+            raise ValueError(
+                f"anchor_hz {anchor_hz} outside the band grid "
+                f"[{lo_hz}, {eff_hi:.0f}) (src sr {sr}, ref sr {int(ref_sr)})")
+
+    def _offset(curve):
+        return float(curve[anchor_idx]) if anchor_idx is not None else float(np.mean(curve))
+
+    src_n = src_db - _offset(src_db)
+    ref_n = ref_db - _offset(ref_db)
     delta = float(strength) * (ref_n - src_n)
     delta = np.clip(delta, -float(max_correction_db), float(max_correction_db))
 
@@ -863,19 +914,50 @@ def apply_spectral_match(
         eq_bands.append({"freq_hz": round(fc, 1), "gain_db": round(gain, 2), "q": round(q, 3)})
 
     out = np.clip(out, -1.0, 1.0).astype("float32")
+
+    # A/B: measure the OUTPUT on the SAME band grid, normalized like the other two curves (same
+    # mean-or-anchor rule), so a consumer can read the target's spectrum before vs after against
+    # the reference without re-analysing the audio. `residual_db` scores the distance to the
+    # reference (RMS over bands, dB) before and after — the single number that says whether the
+    # match helped.
+    out_mono = out.mean(axis=1) if out.ndim > 1 else out
+    out_db = _band_power_db(out_mono, sr, bands)
+    out_n = out_db - _offset(out_db)
+    # Protected bands are pinned at 0 dB correction, so scoring them would dilute (understate)
+    # the improvement; if EVERY band is protected, score them all rather than divide by zero.
+    band_fcs = np.array([np.sqrt(lo * hi) for lo, hi in bands])
+    mask = band_fcs >= float(protect_below_hz)
+    if not mask.any():
+        mask = np.ones(len(bands), dtype=bool)
+
+    def _rms(curve):
+        return round(float(np.sqrt(np.mean(np.asarray(curve)[mask] ** 2))), 6)
+
     params = {
         "reference": os.path.basename(str(reference_path)),
         "strength": float(strength),
         "max_correction_db": float(max_correction_db),
         "n_bands": int(n_bands),
         "protect_below_hz": float(protect_below_hz),
+        "anchor_hz": None if anchor_hz is None else float(anchor_hz),
         "hi_hz_effective": round(eff_hi, 1),
         "ref_sr_hz": int(ref_sr),
         "band_centers_hz": centers,
         "correction_db": applied,
         "bands": eq_bands,
+        # band order is `band_centers_hz`; 6 dp keeps each curve's mean at 0 within 1e-6
+        # (2 dp, the house rounding for a single gain, would bias a 12-band mean by ~1e-3).
+        "spectrum_db": {
+            "source": [round(float(v), 6) for v in src_n],
+            "reference": [round(float(v), 6) for v in ref_n],
+            "matched": [round(float(v), 6) for v in out_n],
+        },
+        "residual_db": {"before": _rms(ref_n - src_n), "after": _rms(ref_n - out_n)},
         "sr_hz": sr,
     }
+    if anchor_idx is not None:
+        # which band the pivot landed in — the one reading 0 dB in all three curves
+        params["anchor_band_hz"] = centers[anchor_idx]
     return _emit_wet_audio(
         out, sr, src_frame=audio_frame, op="spectral-match",
         op_version=SPECTRAL_MATCH_OP_VERSION, params=params,
@@ -1023,6 +1105,102 @@ def apply_automate(audio_frame: dict, *, target: str, shape: str = "sine", cycle
     out = np.clip(out, -1.0, 1.0).astype("float32")
     return _emit_wet_audio(out, sr, src_frame=audio_frame, op="automate",
                            op_version=AUTOMATE_OP_VERSION, params=params)
+
+
+# ---------------------------------------------------------------------------
+# variants — N STATIC filter renders across a log-spaced cutoff range (palette variants).
+#
+# A one-shot palette printed once reads dead: every hit is the same timbre, and with no live
+# filter under your hands there is no closed→open, dark→bright gesture to play. `apply_automate
+# (target="cutoff")` bakes that movement WITHIN one render; this bakes it ACROSS renders — the
+# same sweep frozen at N points, which is the closed / muted / half / open / bright palette a
+# sound designer would print by hand. No new DSP: each variant is the automate sweep held at a
+# constant cutoff (same resonant RBJ low-pass, same steady-state init), so variant k IS the
+# sweep paused at step k. Pure numpy/scipy, no RNG → same input + params ⇒ identical bytes.
+# ---------------------------------------------------------------------------
+VARIANTS_OP_VERSION = "variants@1"
+
+MAX_VARIANT_STEPS = 64
+
+
+def _variant_role(audio_frame: dict, index: int) -> str:
+    """``<base>.variant:<k>`` (k is 1-based) — distinct per step so `select --role` can pick one."""
+    base = _wet_role(audio_frame)
+    base = base[: -len(".wet")] if base.endswith(".wet") else base
+    return f"{base}.variant:{index}"
+
+
+def variant_cutoffs(lo_hz: float, hi_hz: float, steps: int) -> list[float]:
+    """The log-spaced cutoff ladder ``lo..hi`` (inclusive at both ends), ``steps`` long.
+
+    Log, not linear: pitch/brightness is perceived geometrically, so equal ratios are what
+    read as equal steps of "more open". ``steps == 1`` degenerates to ``[lo]``.
+    """
+    import numpy as np
+
+    return [float(f) for f in np.geomspace(float(lo_hz), float(hi_hz), int(steps))]
+
+
+def render_cutoff_variants(
+    audio_frame: dict,
+    *,
+    lo_hz: float = 200.0,
+    hi_hz: float = 8000.0,
+    steps: int = 5,
+    resonance: float = 0.707,
+) -> list[dict]:
+    """Render ``steps`` timbral variants of one source, one per log-spaced cutoff in lo..hi.
+
+    Returns a list of wet `audio` frames, closed (``lo_hz``) → open (``hi_hz``), each with role
+    ``<base>.variant:<k>`` (k = 1..steps) and full lineage. ``hi_hz`` is clamped to 0.49·sr and
+    ``lo_hz`` floored at 20 Hz (the automate sweep's limits); ``resonance`` is the low-pass Q
+    (0.707 flat, 3-10 = a resonant, vocal-sounding edge at the cutoff).
+    """
+    import numpy as np
+
+    steps = int(steps)
+    if steps < 1:
+        raise ValueError(f"steps must be >= 1 (got {steps})")
+    if steps > MAX_VARIANT_STEPS:
+        raise ValueError(f"steps must be <= {MAX_VARIANT_STEPS} (got {steps})")
+    if resonance <= 0:
+        raise ValueError(f"resonance must be > 0 (got {resonance})")
+
+    data, sr = _load_audio(audio_frame)
+    lo = max(float(lo_hz), 20.0)
+    eff_hi = min(float(hi_hz), 0.49 * sr)
+    if steps > 1 and not lo < eff_hi:
+        raise ValueError(f"empty cutoff range: lo {lo:.1f} Hz >= hi {eff_hi:.1f} Hz (sr {sr})")
+
+    cutoffs = variant_cutoffs(lo, eff_hi, steps)
+    n = data.shape[0]
+
+    out: list[dict] = []
+    for k, fc in enumerate(cutoffs, start=1):
+        params = {
+            "variant_index": k,
+            "steps": steps,
+            "cutoff_hz": round(float(fc), 3),
+            "lo_hz": round(lo, 1),
+            "hi_hz": round(eff_hi, 1),
+            "resonance": float(resonance),
+            "spacing": "log",
+            "sr_hz": sr,
+        }
+        if n == 0:
+            params["noop"] = "empty"
+            wet = data
+        else:
+            # One block over the whole clip: `_sweep_lowpass` with a constant cutoff is exactly
+            # the automate sweep frozen at fc (identical coefficients + steady-state init).
+            const = np.full(n, float(fc))
+            wet = _sweep_lowpass(data, sr, const, float(resonance), n)
+            wet = np.clip(wet, -1.0, 1.0).astype("float32")
+        out.append(_emit_wet_audio(
+            wet, sr, src_frame=audio_frame, op="variants", op_version=VARIANTS_OP_VERSION,
+            params=params, role=_variant_role(audio_frame, k),
+        ))
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -1257,6 +1435,136 @@ def apply_stretch(audio_frame: dict, *, ratio: float) -> dict:
                            op_version=STRETCH_OP_VERSION, params=params)
 
 
+# ---------------------------------------------------------------------------
+# paulstretch — EXTREME time-stretch into ambience (`smpl stretch --paul`).
+#
+# Nasca Octavian Paul's algorithm (public domain), promoted out of the basilica
+# ambience build script. Window the input, keep each window's magnitude spectrum
+# and RANDOMIZE the phases, then overlap-add the resynthesised windows at 50%
+# overlap while the *input* read head advances only ``window/(2·factor)`` per
+# step. Throwing the phases away is the whole trick: there is no transient left
+# to smear, so 8×/50× factors turn a sample into a smooth pad instead of the
+# metallic warble a phase vocoder gives at those ratios.
+#
+# The reference implementation's ``hinv_buf`` amplitude demodulation is
+# DELIBERATELY absent (it is commented out upstream too): with the
+# ``(1−x²)^1.25`` window at 50% overlap the overlap-add power sum ripples only
+# ~2.6%, which is inaudible, and re-applying the correction would put a
+# hop-rate line back into the energy envelope.
+# ---------------------------------------------------------------------------
+PAULSTRETCH_OP_VERSION = "paulstretch@1"
+
+# Fixed phase seed: the algorithm is randomised, but a pipe op has to be
+# reproducible (same input + params → same hash) for lineage/memoization.
+_PAULSTRETCH_SEED = 0x5A17
+
+# Partial L/R re-blend for the stereo variant (``pstretch_st``). Channels are
+# stretched with independent phase streams, so they come out uncorrelated; the
+# mix L' = a·L + b·R, R' = a·R + b·L lands inter-channel correlation at
+# 2ab/(a²+b²) = 0.6 for b/a = 1/3, with a²+b² = 1 keeping the power constant.
+_PSTRETCH_ST_A = 3.0 / (10.0 ** 0.5)
+_PSTRETCH_ST_B = 1.0 / (10.0 ** 0.5)
+
+
+def _paulstretch_mono(x, *, factor: float, windowsize: int, sr: int, rng):
+    """Paulstretch one float64 channel by ``factor`` (>1 = longer). Returns float64."""
+    import numpy as np
+
+    half = windowsize // 2
+    n = len(x)
+    if n == 0:
+        return np.zeros(0, dtype="float64")
+
+    x = np.asarray(x, dtype="float64").copy()
+    # Reference behaviour: taper the last 50 ms so the final window doesn't end on a step.
+    end_size = min(max(int(sr * 0.05), 16), n)
+    x[n - end_size:] *= np.linspace(1.0, 0.0, end_size)
+
+    window = np.power(1.0 - np.power(np.linspace(-1.0, 1.0, windowsize), 2.0), 1.25)
+    displace = half / float(factor)          # INPUT hop; the output hop stays `half`
+    n_steps = max(int(math.ceil(n / displace)), 1)
+
+    out = np.zeros(n_steps * half, dtype="float64")
+    old = np.zeros(windowsize, dtype="float64")
+    pos = 0.0
+    for i in range(n_steps):
+        istart = int(math.floor(pos))
+        buf = x[istart: istart + windowsize]
+        if len(buf) < windowsize:
+            buf = np.concatenate([buf, np.zeros(windowsize - len(buf), dtype="float64")])
+        buf = buf * window
+        mags = np.abs(np.fft.rfft(buf))
+        # Keep the magnitudes, discard the phases (uniform random, modulus 1).
+        phases = rng.uniform(0.0, 2.0 * np.pi, mags.shape[0])
+        buf = np.fft.irfft(mags * np.exp(1j * phases), n=windowsize)
+        buf = buf * window                   # window again on the way out
+        out[i * half: (i + 1) * half] = buf[:half] + old[half:]
+        old = buf
+        pos += displace
+    return out
+
+
+def apply_paulstretch(
+    audio_frame: dict,
+    *,
+    factor: float,
+    window_s: float = 0.28,
+    stereo_decorrelate: bool = False,
+) -> dict:
+    """Extreme time-stretch (paulstretch) by ``factor``, returning a wet `audio` frame.
+
+    ``factor`` is a LENGTH multiplier (8 → eight times longer); ``window_s`` is the
+    analysis/synthesis window in seconds (longer = smoother/more smeared). Stereo input is
+    stretched per channel with independent phase streams and then partially re-blended so
+    the inter-channel correlation lands ~0.6 (``pstretch_st``); ``stereo_decorrelate=True``
+    skips the re-blend and leaves the channels fully decorrelated for a wider pad.
+    """
+    import numpy as np
+
+    if factor <= 0:
+        raise ValueError(f"factor must be > 0 (got {factor})")
+    if window_s <= 0:
+        raise ValueError(f"window_s must be > 0 (got {window_s})")
+
+    data, sr = _load_audio(audio_frame)
+    windowsize = max(int(window_s * sr), 16)
+    windowsize = (windowsize // 2) * 2       # even → a clean 50% overlap
+
+    n_in = data.shape[0]
+    target = max(int(round(n_in * float(factor))), 1) if n_in else 0
+
+    chans = []
+    for c in range(data.shape[1]):
+        rng = np.random.default_rng(_PAULSTRETCH_SEED + c)
+        y = _paulstretch_mono(data[:, c].astype("float64"), factor=float(factor),
+                              windowsize=windowsize, sr=sr, rng=rng)
+        # The OLA emits whole half-windows; trim (or pad) to the exact stretched length.
+        if len(y) >= target:
+            y = y[:target]
+        else:
+            y = np.concatenate([y, np.zeros(target - len(y), dtype="float64")])
+        chans.append(y)
+
+    out = np.stack(chans, axis=1) if chans else np.zeros((0, 1), dtype="float64")
+    if out.shape[1] >= 2 and not stereo_decorrelate:
+        left, right = out[:, 0].copy(), out[:, 1].copy()
+        out[:, 0] = _PSTRETCH_ST_A * left + _PSTRETCH_ST_B * right
+        out[:, 1] = _PSTRETCH_ST_A * right + _PSTRETCH_ST_B * left
+
+    out = np.clip(out, -1.0, 1.0).astype("float32")
+    params = {
+        "mode": "paul",
+        "factor": float(factor),
+        "window_s": float(window_s),
+        "window_samples": int(windowsize),
+        "sr_hz": sr,
+    }
+    if data.shape[1] >= 2:
+        params["stereo_decorrelate"] = bool(stereo_decorrelate)
+    return _emit_wet_audio(out, sr, src_frame=audio_frame, op="paulstretch",
+                           op_version=PAULSTRETCH_OP_VERSION, params=params)
+
+
 def apply_pitch(audio_frame: dict, *, semitones: float) -> dict:
     """Pitch-shift by ``semitones`` at constant DURATION (phase-vocoder stretch + resample).
 
@@ -1284,3 +1592,83 @@ def apply_pitch(audio_frame: dict, *, semitones: float) -> dict:
     params = {"semitones": float(semitones), "shift_ratio": round(shift, 5), "sr_hz": sr}
     return _emit_wet_audio(out, sr, src_frame=audio_frame, op="pitch",
                            op_version=PITCH_OP_VERSION, params=params)
+
+
+# ---------------------------------------------------------------------------
+# loopify — make a rendered loop TILE-SAFE (promoted from refmatch/loopify.py, vault-11gm).
+#
+# A render is not a loop. smplmix places bar-1-beat-1 at sample ~249 (a ~5 ms render offset) and
+# cuts the tail wherever the render ended, so naive repeats of its output sit progressively LATE
+# and click at every seam. Three exact fixes, in order: shift the downbeat to sample 0, force the
+# length to the bar grid, fade the seam to zero. Everything here is sample-exact numpy — no
+# analysis, no resampling — so the audio between the trim and the fade is bit-identical.
+# ---------------------------------------------------------------------------
+def apply_loopify(
+    audio_frame: dict,
+    *,
+    bpm: float,
+    bars: int = 2,
+    beats_per_bar: int = 4,
+    declick_ms: float = 5.0,
+    max_trim_ms: float = 12.0,
+) -> dict:
+    """Trim the render-offset (downbeat→0), set the exact bar length, fade the seam to zero.
+
+    The leading offset is found as the first sample above −45 dB of the peak, and is trimmed ONLY
+    when it is shorter than ``max_trim_ms`` — that bounds the fix to smplmix's ~5 ms render
+    artifact; a longer lead is a musical fade-in or pickup and is left intact (trimming it would
+    eat the performance). The body is then truncated or zero-padded to
+    ``round(bars * beats_per_bar * 60 / bpm * sr)`` samples so N repeats land exactly on the grid.
+    Finally the last ``declick_ms`` fades to 0 — the loop point is where a discontinuity becomes an
+    audible click — plus a ~1.3 ms (64-sample) fade-in that kills start DC without softening the
+    first transient, so the downbeat keeps its punch. The end fade is skipped for a body shorter
+    than ``2 * declick_ms`` (nothing but fade would survive).
+    """
+    import numpy as np
+
+    if bpm <= 0:
+        raise ValueError(f"bpm must be > 0 (got {bpm})")
+    if bars <= 0 or beats_per_bar <= 0:
+        raise ValueError(f"bars/beats_per_bar must be >= 1 (got {bars}/{beats_per_bar})")
+    if declick_ms < 0 or max_trim_ms < 0:
+        raise ValueError(f"declick_ms/max_trim_ms must be >= 0 (got {declick_ms}/{max_trim_ms})")
+
+    data, sr = _load_audio(audio_frame)
+    x = data
+    target = int(round(bars * beats_per_bar * 60.0 / float(bpm) * sr))
+    if x.shape[0] == 0:  # empty slice → passthrough with a note (mirror apply_compress)
+        params = {"bpm": float(bpm), "bars": int(bars), "beats_per_bar": int(beats_per_bar),
+                  "note": "empty input: passthrough", "sr_hz": sr}
+        return _emit_wet_audio(x, sr, src_frame=audio_frame, op="loopify",
+                               op_version=LOOPIFY_OP_VERSION, params=params)
+
+    # 1. downbeat → 0: first sample above −45 dBpeak, trimmed only if it is the render offset.
+    mag = np.abs(x).max(axis=1)
+    peak = float(mag.max()) or 1.0
+    above = np.where(mag > 10 ** (-45 / 20) * peak)[0]
+    lead = int(above[0]) if len(above) else 0
+    if 0 < lead < int(max_trim_ms / 1000 * sr):
+        x = x[lead:]
+    else:
+        lead = 0
+
+    # 2. exact bar length: truncate a long render, zero-pad one that got cut short.
+    if len(x) >= target:
+        x = x[:target].copy()
+    else:
+        x = np.pad(x, ((0, target - len(x)), (0, 0)))
+
+    # 3. de-click the seam: end → 0, plus a 64-sample fade-in against start DC.
+    d = int(declick_ms / 1000 * sr)
+    if d and len(x) > 2 * d:
+        x[-d:] *= np.linspace(1.0, 0.0, d, dtype="float32")[:, None]
+        fi = min(64, len(x))
+        x[:fi] *= np.linspace(0.0, 1.0, fi, dtype="float32")[:, None]
+
+    params = {
+        "bpm": float(bpm), "bars": int(bars), "beats_per_bar": int(beats_per_bar),
+        "lead_trimmed_samples": int(lead), "target_len_samples": int(target),
+        "declick_ms": float(declick_ms), "max_trim_ms": float(max_trim_ms), "sr_hz": sr,
+    }
+    return _emit_wet_audio(x.astype("float32"), sr, src_frame=audio_frame, op="loopify",
+                           op_version=LOOPIFY_OP_VERSION, params=params)

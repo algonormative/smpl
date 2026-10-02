@@ -36,6 +36,12 @@ _N_FFT = 2048
 _HOP = 512
 _N_MELS = 128
 
+# Declared default table for the memo key (spec → *Parameter canonicalization*): omitted
+# params are filled from THIS table for THIS op_version before hashing. `kind` has no
+# default — each render kind is memoized separately, so asking for mel+cqt after a
+# mel-only run hits the cached mel and renders only the cqt.
+MEMO_DEFAULTS = {"n_fft": _N_FFT, "hop_length": _HOP, "n_mels": _N_MELS}
+
 
 def pad_short_signal(y, n_fft: int):
     """Zero-pad a signal shorter than the FFT window up to ``n_fft`` samples.
@@ -177,23 +183,65 @@ def render_array(y, sr: int, kind: str) -> bytes:
     return _RENDER[kind](y, sr)
 
 
-def render_audio_frame(audio_frame: dict, *, kinds: Optional[list[str]] = None) -> list[dict]:
+def _source_sr(audio_frame: dict) -> Optional[int]:
+    """Native sample rate of the source, without decoding it.
+
+    ``_load_mono`` loads at ``sr=None`` (native rate), so the CAS meta sidecar — written at
+    ingest from the same file — carries the exact rate a render would have used. Reading it
+    is what lets a cache hit skip the decode entirely; the frame's own ``meta`` is the
+    fallback when no sidecar rate is recorded.
+    """
+    from smplstream import cas
+
+    meta = cas.read_meta(audio_frame["hash"]) or {}
+    sr = meta.get("sr") or (audio_frame.get("meta") or {}).get("sr")
+    return int(sr) if sr else None
+
+
+def render_audio_frame(audio_frame: dict, *, kinds: Optional[list[str]] = None,
+                       use_cache: bool = True) -> list[dict]:
     """Render the requested image kinds for one `audio` frame; return `image` frames.
 
     Each PNG is stored in the CAS (``cas.put_blob(png, "image/png")``) and referenced by
     an `image` frame whose ``of`` is the audio frame id, with ``op``/``op_version``/``params``
     set per the tool contract. ``kinds`` defaults to ``["mel"]``.
+
+    **Memoized per kind** (spec → *Memoization*): each render is keyed on
+    ``(op, op_version, input audio hash, canonical params incl. kind)`` with an empty env
+    fingerprint (matplotlib's Agg backend is deterministic file output). A hit reuses the
+    PNG already in the CAS — no decode, no render — and, when every requested kind hits, the
+    audio is never loaded at all. ``use_cache=False`` forces re-render and refreshes the
+    entries. ``params.cache_hit`` records which path ran.
     """
-    from smplstream import cas, frames as F
+    from smplstream import cas, frames as F, memo, memostore
 
     kinds = list(kinds) if kinds else ["mel"]
-    src = cas.get_path(audio_frame["hash"])
-    y, sr = _load_mono(str(src))
+
+    plan: list[tuple[str, dict, str, Optional[str]]] = []  # (kind, params, memo key, hit hash)
+    for kind in kinds:
+        params = {"kind": kind, "n_fft": _N_FFT, "hop_length": _HOP, "n_mels": _N_MELS}
+        mkey = memo.memo_key(
+            OP, OP_VERSION, [audio_frame["hash"]], params=params, defaults=MEMO_DEFAULTS
+        )
+        entry = memostore.lookup(mkey) if use_cache else None
+        plan.append((kind, params, mkey, entry["hash"] if entry else None))
+
+    sr = _source_sr(audio_frame)
+    y = None
+    if any(hit is None for _, _, _, hit in plan) or sr is None:
+        # At least one kind must actually render (or the sidecar has no rate) → decode once.
+        src = cas.get_path(audio_frame["hash"])
+        y, sr = _load_mono(str(src))
 
     out: list[dict] = []
-    for kind in kinds:
-        png = render_array(y, sr, kind)
-        h = cas.put_blob(png, "image/png")
+    for kind, params, mkey, hit in plan:
+        if hit is not None:
+            h, cache_hit = hit, True
+        else:
+            png = render_array(y, sr, kind)
+            h = cas.put_blob(png, "image/png")
+            memostore.record(mkey, h, media="image/png", op=OP, op_version=OP_VERSION)
+            cache_hit = False
         out.append(
             F.image_frame(
                 h,
@@ -202,7 +250,7 @@ def render_audio_frame(audio_frame: dict, *, kinds: Optional[list[str]] = None) 
                 of=audio_frame["id"],
                 op=OP,
                 op_version=OP_VERSION,
-                params={"kind": kind, "n_fft": _N_FFT, "hop_length": _HOP, "n_mels": _N_MELS},
+                params={**params, "cache_hit": cache_hit},
                 meta={"sr": sr},
             )
         )

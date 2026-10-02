@@ -66,10 +66,14 @@ def test_crest_at_least_one():
     assert data["lowlevel.spectral_crest"]["mean"] >= 1.0
 
 
-def test_audio_frame_roundtrip(tmp_path):
+def test_audio_frame_roundtrip(tmp_path, monkeypatch):
     import soundfile as sf
 
     from smplstream import cas, frames as F
+
+    # Isolated CAS (and therefore isolated memo index) so the run is a genuine cold start
+    # and the real ~/.smpl is never touched.
+    monkeypatch.setenv("SMPL_CAS_DIR", str(tmp_path / "cas"))
 
     wav = tmp_path / "tone.wav"
     sf.write(str(wav), _sine(440.0), 22050, subtype="FLOAT")
@@ -85,7 +89,8 @@ def test_audio_frame_roundtrip(tmp_path):
     assert feat["op"] == "spectral"
     assert feat["op_version"] == "spectral@1"
     assert set(feat["data"].keys()) == EXPECTED_KEYS
-    assert feat["params"] == {"n_fft": 2048, "hop_length": 512}
+    # STFT params plus the memo marker (a cold first run computes).
+    assert feat["params"] == {"n_fft": 2048, "hop_length": 512, "cache_hit": False}
 
 
 def test_op_version_constant():

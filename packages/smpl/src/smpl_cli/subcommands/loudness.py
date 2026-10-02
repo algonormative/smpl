@@ -26,6 +26,8 @@ def add_arguments(parser):
                         help="skip true-peak-over marker frames")
     parser.add_argument("--over-ceiling-dbtp", type=float, default=None,
                         help="true-peak ceiling for over markers (default: -1.0 dBTP)")
+    parser.add_argument("--no-cache", action="store_true",
+                        help="bypass the memo cache: force recompute and refresh the entry")
 
 
 def run(args) -> int:
@@ -51,6 +53,7 @@ def run(args) -> int:
                     audio,
                     emit_markers=not args.no_markers,
                     over_ceiling_dbtp=ceiling,
+                    use_cache=not args.no_cache,
                 )
             )
         except Exception as exc:

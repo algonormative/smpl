@@ -10,7 +10,7 @@ The rule that makes the audit worth running: **every claim cites a
 measured number with its unit.** No number from a frame, no claim.
 
 Check the toolchain first: `smpl --version`. If it is missing, point
-the user at <https://github.com/chronick/smpl#install>.
+the user at <https://github.com/algonormative/smpl#install>.
 
 ## The pass
 

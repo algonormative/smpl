@@ -19,6 +19,8 @@ def add_arguments(parser):
         action="store_true",
         help="skip click/gap defect marker frames (emit only the feature frame)",
     )
+    parser.add_argument("--no-cache", action="store_true",
+                        help="bypass the memo cache: force recompute and refresh the entry")
 
 
 def run(args) -> int:
@@ -41,7 +43,13 @@ def run(args) -> int:
     rc = 0
     for audio in audios:
         try:
-            out.extend(_qc.qc_audio_frame(audio, want_markers=not args.no_markers))
+            out.extend(
+                _qc.qc_audio_frame(
+                    audio,
+                    want_markers=not args.no_markers,
+                    use_cache=not args.no_cache,
+                )
+            )
         except Exception as exc:
             eprint(f"qc: {audio.get('id')}: {exc}")
             out.append(error_frame("op_failed", str(exc), of=audio.get("id"), op="qc"))

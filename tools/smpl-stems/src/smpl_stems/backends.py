@@ -12,6 +12,20 @@ incorporate the *weights identity*, not just a friendly model name — otherwise
 Demucs upgrade silently serves stale cached results from the old weights (spec →
 *Memoization*). We hash the resolved weights file when present, falling back to
 the registry id+version, and fold that into ``op_version``.
+
+## Model routing (guidance, not runtime enforcement)
+
+Three models are known (see :data:`KNOWN_MODELS`), and they are NOT meant to run
+in the same place:
+
+* ``htdemucs`` (4-stem) and ``htdemucs_6s`` (6-stem, the default) are **local**
+  models — Demucs is MPS-capable, so they run fine on the laptop/desktop tier.
+* ``bs-roformer`` (2-stem vocals/instrumental, ~3 dB SDR over Demucs on vocals)
+  is heavier and is intended for the **mac-mini batch tier**: queue batch jobs
+  there rather than running it interactively on a laptop.
+
+Nothing here schedules anything — routing is an operator decision; this module
+only documents the intent and pins the exact checkpoint each id resolves to.
 """
 
 from __future__ import annotations
@@ -34,7 +48,9 @@ def default_model() -> str:
 
 # Canonical stem → smplstream role (spec → *Role naming conventions*). audio-separator emits
 # Demucs stem names; we map them onto the namespaced `stem:<name>` roles. The 6-stem set
-# (htdemucs_6s) adds guitar + piano; 4-stem models simply produce a subset.
+# (htdemucs_6s) adds guitar + piano; 4-stem models simply produce a subset. `instrumental` is
+# the RoFormer half — a 2-stem run emits Vocals + Instrumental, and without a row here the
+# role filter in `separate()` would silently DROP the instrumental stem.
 STEM_ROLES = {
     "drums": "stem:drums",
     "bass": "stem:bass",
@@ -42,7 +58,58 @@ STEM_ROLES = {
     "other": "stem:other",
     "guitar": "stem:guitar",
     "piano": "stem:piano",
+    "instrumental": "stem:instrumental",
 }
+
+
+# Known models → the metadata that can't be guessed from the id string.
+#
+# WHY an explicit table rather than suffix-sniffing: `load_model` takes a *file name*, and the
+# extension is model-family-specific — the Demucs family loads by its `.yaml` bundle descriptor,
+# while BS-RoFormer loads the UVR `.ckpt` directly. Pinning the exact checkpoint filename also
+# keeps `op_version`'s weights identity stable (a different RoFormer epoch is a different file,
+# hence a different op_version, hence no stale cache hits — spec → *Memoization*).
+KNOWN_MODELS: dict[str, dict] = {
+    "htdemucs": {
+        "separator_filename": "htdemucs.yaml",
+        "stems": "4",
+        "description": "Hybrid Transformer Demucs, 4-stem (drums/bass/vocals/other). Local tier.",
+    },
+    "htdemucs_6s": {
+        "separator_filename": "htdemucs_6s.yaml",
+        "stems": "6",
+        "description": "Demucs 6-stem (adds guitar + piano). Default; local tier.",
+    },
+    "bs-roformer": {
+        "separator_filename": "model_bs_roformer_ep_317_sdr_12.9755.ckpt",
+        "stems": "2",
+        "description": (
+            "UVR BS-RoFormer ep 317 (SDR 12.9755), 2-stem vocals/instrumental. "
+            "~3 dB SDR over Demucs on vocals; heavy — route to the mac-mini batch tier."
+        ),
+    },
+}
+
+
+def separator_filename(model: str) -> str:
+    """The file name handed to ``Separator.load_model`` for ``model``.
+
+    Known ids resolve through :data:`KNOWN_MODELS` (yaml for the Demucs family, the pinned
+    ckpt for BS-RoFormer); an unknown/custom id keeps the historical ``<id>.yaml`` guess so
+    custom Demucs-family models still work unchanged.
+    """
+    meta = KNOWN_MODELS.get(model)
+    if meta:
+        return meta["separator_filename"]
+    return f"{model}.yaml"
+
+
+def stems_for(model: str) -> str:
+    """Stem count for ``model`` (string, as the registry rows carry it)."""
+    meta = KNOWN_MODELS.get(model)
+    if meta:
+        return meta["stems"]
+    return "6" if model.endswith("6s") else "4"
 
 
 class UnsupportedBackend(Exception):
@@ -145,7 +212,9 @@ class SeparatorBackend:
                 output_format="WAV",
                 model_file_dir=str(stems_home() / "models"),
             )
-            sep.load_model(model_filename=f"{self.model}.yaml")
+            # Family-specific file name (Demucs → .yaml, BS-RoFormer → the pinned .ckpt);
+            # unknown ids fall back to `<id>.yaml`. See `separator_filename`.
+            sep.load_model(model_filename=separator_filename(self.model))
             produced = sep.separate(input_path)
         except UnsupportedBackend:
             raise
@@ -169,10 +238,15 @@ class SeparatorBackend:
 
 
 def _infer_stem_name(path: str) -> str:
-    """Map an audio-separator output filename to a canonical stem name."""
+    """Map an audio-separator output filename to a canonical stem name.
+
+    audio-separator names outputs ``<track>_(<Stem>)`` and often appends the model name
+    (``<track>_(Vocals)_model_bs_roformer_…``), so the parenthesised marker is matched
+    anywhere in the name, not only at the end.
+    """
     low = Path(path).stem.lower()
     for stem in STEM_ROLES:
-        if low.endswith(f"_({stem})") or low.endswith(stem) or f"_{stem}" in low:
+        if f"_({stem})" in low or low.endswith(stem) or f"_{stem}" in low:
             return stem
     return low
 
@@ -197,11 +271,12 @@ def _load_registry() -> dict:
 
 def list_models() -> list[dict]:
     installed = _load_registry()
-    # The default model is always "known" (downloadable on first heavy run) even before
-    # it is registered, so `models list` shows the user what `stems` will reach for.
+    # Every KNOWN_MODELS id (and the default, however it is overridden) is always listed —
+    # downloadable on first heavy run even before it is registered — so `models list` shows
+    # the user which models `stems` can reach for, including bs-roformer.
     rows = []
     default = default_model()
-    known = set(installed) | {default}
+    known = set(installed) | set(KNOWN_MODELS) | {default}
     for mid in sorted(known):
         meta = installed.get(mid, {})
         rows.append(
@@ -211,7 +286,7 @@ def list_models() -> list[dict]:
                 "default": mid == default,
                 "version": meta.get("version", "unpinned"),
                 "weights": meta.get("weights"),
-                "stems": meta.get("stems", "6" if mid.endswith("6s") else "4"),
+                "stems": meta.get("stems") or stems_for(mid),
             }
         )
     return rows
@@ -223,10 +298,18 @@ def install_model(model_id: str, *, version: str = "unpinned") -> dict:
     stems_home().mkdir(parents=True, exist_ok=True)
     f = _registry_file()
     reg = _load_registry()
+    # Weights land under SMPL_STEMS_HOME/models under the separator's own file name, so the
+    # op_version hash targets the file audio-separator actually downloads (yaml for the Demucs
+    # family, the pinned ckpt for BS-RoFormer). Unknown ids keep the historical `<id>.ckpt`.
+    weights_name = (
+        KNOWN_MODELS[model_id]["separator_filename"]
+        if model_id in KNOWN_MODELS
+        else f"{model_id}.ckpt"
+    )
     reg[model_id] = {
         "version": version,
-        "weights": str(stems_home() / "models" / f"{model_id}.ckpt"),
-        "stems": "6" if model_id.endswith("6s") else "4",
+        "weights": str(stems_home() / "models" / weights_name),
+        "stems": stems_for(model_id),
     }
     f.write_text(json.dumps(reg, indent=2))
     return reg[model_id]

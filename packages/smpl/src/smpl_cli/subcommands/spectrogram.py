@@ -28,6 +28,8 @@ def add_arguments(parser):
         action="store_true",
         help="render every kind (mel, cqt, hpss, waveform)",
     )
+    parser.add_argument("--no-cache", action="store_true",
+                        help="bypass the memo cache: force recompute and refresh the entry")
 
 
 def run(args) -> int:
@@ -55,7 +57,9 @@ def run(args) -> int:
     rc = 0
     for audio in audios:
         try:
-            out.extend(_spec.render_audio_frame(audio, kinds=kinds))
+            out.extend(
+                _spec.render_audio_frame(audio, kinds=kinds, use_cache=not args.no_cache)
+            )
         except Exception as exc:
             eprint(f"spectrogram: {audio.get('id')}: {exc}")
             out.append(error_frame("op_failed", str(exc), of=audio.get("id"), op="spectrogram"))

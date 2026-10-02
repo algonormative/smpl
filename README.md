@@ -8,7 +8,7 @@
 heavy bytes themselves. That one choice buys multi-payload streams, a normative
 memoization contract, and lazy evaluation.*
 
-[Site](https://chronick.github.io/smpl/) · [Quick start](#quick-start) · [Protocol](#the-wire-protocol) · [Install](#install) · [Pipes](#pipes) · [For LLMs](#built-for-llms) · [Skills](#install-the-agent-skills) · [Tools](#the-tools)
+[Site](https://algonormative.github.io/smpl/) · [Quick start](#quick-start) · [Protocol](#the-wire-protocol) · [Install](#install) · [Pipes](#pipes) · [For LLMs](#built-for-llms) · [Skills](#install-the-agent-skills) · [Tools](#the-tools)
 
 </div>
 
@@ -20,8 +20,9 @@ smpl read loop.wav | smpl loudness | smpl view > /dev/null
 
 That core-only pipe measures a sample and prints a readable report. Every stage is a
 boring Unix citizen: NDJSON on the wire (so `jq` works), real file paths for the heavy
-bytes (so `sox` and `ffmpeg` work), content-addressed and specified to memoize (the memo
-key is defined; cache lookups are not wired up yet).
+bytes (so `sox` and `ffmpeg` work), content-addressed and memoized (`loudness`, `spectral`,
+`qc`, and `spectrogram` consult the memo cache before computing; `--no-cache` forces a
+recompute).
 
 ## Quick start
 
@@ -33,15 +34,15 @@ download, heavy subcommand, provider account, or API key.
    isolated environment:
 
    ```bash
-   uv tool install git+https://github.com/chronick/smpl#subdirectory=packages/smpl \
-     --with git+https://github.com/chronick/smpl#subdirectory=packages/smplstream \
-     --with git+https://github.com/chronick/smpl#subdirectory=packages/smpl-analysis
+   uv tool install git+https://github.com/algonormative/smpl#subdirectory=packages/smpl \
+     --with git+https://github.com/algonormative/smpl#subdirectory=packages/smplstream \
+     --with git+https://github.com/algonormative/smpl#subdirectory=packages/smpl-analysis
    ```
 
 2. Download the shipped demo loop:
 
    ```bash
-   curl -LO https://chronick.github.io/smpl/assets/loop.wav
+   curl -LO https://algonormative.github.io/smpl/assets/loop.wav
    ```
 
 3. Run the core-only pipe. `view` prints its readable report to the terminal; the
@@ -98,12 +99,12 @@ integrity, units & timebase — is in [`spec.md`](spec.md). It is versioned like
 
 ```bash
 # the light core (smplstream + smpl-analysis + smpl) — one isolated install
-uv tool install git+https://github.com/chronick/smpl#subdirectory=packages/smpl \
-  --with git+https://github.com/chronick/smpl#subdirectory=packages/smplstream \
-  --with git+https://github.com/chronick/smpl#subdirectory=packages/smpl-analysis
+uv tool install git+https://github.com/algonormative/smpl#subdirectory=packages/smpl \
+  --with git+https://github.com/algonormative/smpl#subdirectory=packages/smplstream \
+  --with git+https://github.com/algonormative/smpl#subdirectory=packages/smpl-analysis
 
 # heavy tools install separately, into their OWN isolated venvs (two-tier):
-uv tool install git+https://github.com/chronick/smpl#subdirectory=tools/smpl-stems
+uv tool install git+https://github.com/algonormative/smpl#subdirectory=tools/smpl-stems
 ```
 
 `ffmpeg` and `sox` on PATH unlock the raw-WAV bridge and `convert`. The core cold-starts
@@ -162,13 +163,14 @@ composes the pipe, resolves only what's needed, and reads back the report.
 | `cat` / `describe` / `describe-all` | describe-as-filter: passthrough + features + caption + image; `-all` aggregates the whole light tier |
 | `loudness` | integrated LUFS, true-peak dBTP, short-term LUFS |
 | `spectral` | spectral-shape family (flatness/crest/spread/rolloff/contrast/slope) |
+| `chords` | chord-span markers (`{t, dur, label, sample}`) + key/tuning feature |
 | `qc` | clipping, phase/mono, DC, SNR, clicks/gaps, lossy-origin cutoff |
 | `spectrogram` | annotated mel / CQT / HPSS spectrograms + waveform (PNG) |
 | `convert` | format / sample-rate / bit-depth conversion (new frame, own hash) |
 | `gain` `normalize` `limit` | level management: dB gain (pure), LUFS-normalize (+ true-peak ceiling), true-peak limit |
-| `maximize` `compress` | look-ahead brickwall limiting (drive + cap); downward compression |
+| `maximize` `compress` `sidechain` | look-ahead brickwall limiting (drive + cap); downward compression; duck a target under a trigger's transients (kick-vs-sub glue) |
 | `filter` `eq` `env` `fx` `slice` `select` | the edit filters + stream selection |
-| `automate` `stereoize` `widen` `spectral-match` | parameter motion over time; mono→wide; M-S width; EQ toward a reference |
+| `automate` `variants` `stereoize` `widen` `spectral-match` | parameter motion over time; N baked closed→open filter variants of one source; mono→wide; M-S width; EQ toward a reference |
 | `pattern` | step-grid drum-loop DSL → smplmix session (velocity / pitch / swing / nudge) |
 | `view` | the multimodal LLM/human report |
 | `gen` · `cloud` · `transcribe` · `stems` · `embed` · `synth` | PATH-discovered heavy tools (own venvs) |
@@ -179,7 +181,7 @@ Two agent skills ship in `skills/`, installable with the open-source `skills` CL
 so Codex and Claude Code share one managed copy:
 
 ```bash
-npx skills add chronick/smpl --global --agent codex claude-code --yes
+npx skills add algonormative/smpl --global --agent codex claude-code --yes
 ```
 
 - **`smpl-dissect`** — isolate a stem, slice, or filtered band and describe exactly

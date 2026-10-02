@@ -12,7 +12,7 @@ numbers. If a value matters, it comes from a `feature` frame, never
 from your own estimate.
 
 Check the toolchain first: `smpl --version`. If it is missing, point
-the user at <https://github.com/chronick/smpl#install> instead of
+the user at <https://github.com/algonormative/smpl#install> instead of
 degrading silently.
 
 ## The frame model (what flows through the pipe)

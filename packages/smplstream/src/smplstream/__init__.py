@@ -17,7 +17,7 @@ from .ids import PROTOCOL_VERSION  # per-frame `v`
 # Protocol-schema cache-invalidation gate (mirrors smplcat's SCHEMA_VERSION discipline).
 SCHEMA = "smplstream/1"
 
-from . import cas, conformance, errors, frames, hashing, memo, ndjson, select  # noqa: E402
+from . import cas, conformance, errors, frames, hashing, memo, memostore, ndjson, select  # noqa: E402
 from .errors import (  # noqa: E402
     ERROR_CODES,
     IntegrityError,
@@ -67,6 +67,7 @@ __all__ = [
     "frames",
     "hashing",
     "memo",
+    "memostore",
     "ndjson",
     "select",
     "ERROR_CODES",

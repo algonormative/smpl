@@ -228,6 +228,100 @@ def test_spectral_match_rejects_bad_params(tmp_path, monkeypatch):
         edit.apply_spectral_match(src, reference_path=str(ref_path), max_correction_db=-3.0)
     with pytest.raises(ValueError):
         edit.apply_spectral_match(src, reference_path=str(ref_path), n_bands=0)
+    with pytest.raises(ValueError):  # anchor below the grid's low edge — no band contains it
+        edit.apply_spectral_match(src, reference_path=str(ref_path), lo_hz=30.0, anchor_hz=10.0)
+    with pytest.raises(ValueError):  # anchor above the grid's effective high edge
+        edit.apply_spectral_match(src, reference_path=str(ref_path), hi_hz=16000.0, anchor_hz=20000.0)
+
+
+def test_spectral_match_records_ab_spectra(tmp_path, monkeypatch):
+    """The wet frame carries the A/B block: source (before), reference, matched (after) — all
+    on the same band grid and all mean-normalized, so the three curves are comparable."""
+    monkeypatch.setenv("SMPL_CAS_DIR", str(tmp_path / "cas"))
+    src = _put_wav(_noise_shaped(tilt=0.0, seed=21), SR)
+    ref_path = tmp_path / "ref.wav"
+    sf.write(str(ref_path), _noise_shaped(tilt=6.0, seed=22), SR, format="WAV", subtype="FLOAT")
+
+    wet = edit.apply_spectral_match(src, reference_path=str(ref_path), strength=1.0,
+                                    max_correction_db=12.0)
+    spec = wet["params"]["spectrum_db"]
+    assert set(spec) == {"source", "reference", "matched"}
+    n = wet["params"]["n_bands"]
+    for key, curve in spec.items():
+        assert len(curve) == n, key
+        assert abs(float(np.mean(curve))) < 1e-6, key   # mean-normalized: balance, not level
+    assert set(wet["params"]["residual_db"]) == {"before", "after"}
+
+
+def test_spectral_match_residual_improves(tmp_path, monkeypatch):
+    """A/B proof: the matched target sits CLOSER to the reference than the source did."""
+    monkeypatch.setenv("SMPL_CAS_DIR", str(tmp_path / "cas"))
+    # same dull-source / bright-reference fixture as the balance test above
+    src = _put_wav(_noise_shaped(tilt=0.0, seed=1), SR)
+    ref_path = tmp_path / "ref.wav"
+    sf.write(str(ref_path), _noise_shaped(tilt=6.0, seed=2), SR, format="WAV", subtype="FLOAT")
+
+    wet = edit.apply_spectral_match(src, reference_path=str(ref_path), strength=1.0,
+                                    max_correction_db=12.0)
+    residual = wet["params"]["residual_db"]
+    assert residual["after"] < residual["before"]
+
+
+def test_spectral_match_zero_strength_ab_is_flat(tmp_path, monkeypatch):
+    """strength=0 applies no EQ, so the after-curve IS the before-curve and the residual to the
+    reference is unchanged — the A/B block can't manufacture an improvement."""
+    monkeypatch.setenv("SMPL_CAS_DIR", str(tmp_path / "cas"))
+    src = _put_wav(_noise_shaped(tilt=0.0, seed=23), SR)
+    ref_path = tmp_path / "ref.wav"
+    sf.write(str(ref_path), _noise_shaped(tilt=8.0, seed=24), SR, format="WAV", subtype="FLOAT")
+
+    wet = edit.apply_spectral_match(src, reference_path=str(ref_path), strength=0.0,
+                                    max_correction_db=24.0)
+    spec = wet["params"]["spectrum_db"]
+    for before, after in zip(spec["source"], spec["matched"]):
+        assert abs(after - before) < 1e-6
+    residual = wet["params"]["residual_db"]
+    assert abs(residual["after"] - residual["before"]) < 1e-6
+
+
+def test_spectral_match_anchor_holds_low_end(tmp_path, monkeypatch):
+    """A DARK source matched to a BRIGHT reference: mean-normalizing cuts the (decent) low end
+    because the dark curve's mean sits low; anchoring at the sub pivots on that band instead, so
+    the low end is held and only the mids/highs rise (vault-9s8c).
+
+    ``protect_below_hz=0.0`` in both runs — otherwise sub-protection, not the anchor, would be
+    what holds the low end.
+    """
+    monkeypatch.setenv("SMPL_CAS_DIR", str(tmp_path / "cas"))
+    src = _put_wav(_noise_shaped(tilt=-0.95, seed=31), SR)      # dark: highs rolled off
+    ref_path = tmp_path / "ref.wav"
+    sf.write(str(ref_path), _noise_shaped(tilt=10.0, seed=32), SR, format="WAV", subtype="FLOAT")
+
+    kw = dict(reference_path=str(ref_path), strength=1.0, max_correction_db=12.0,
+              protect_below_hz=0.0)
+    anchored = edit.apply_spectral_match(src, anchor_hz=45.0, **kw)
+    meaned = edit.apply_spectral_match(src, **kw)
+
+    # the pivot band (the one containing 45 Hz) is recorded and reads 0 in all three curves
+    params = anchored["params"]
+    assert params["anchor_hz"] == 45.0
+    k = params["band_centers_hz"].index(params["anchor_band_hz"])
+    assert abs(params["correction_db"][k]) < 1e-6
+    for curve in params["spectrum_db"].values():
+        assert abs(curve[k]) < 1e-6
+    assert "anchor_band_hz" not in meaned["params"] and meaned["params"]["anchor_hz"] is None
+
+    before, sr = _load(src)
+    a_mono = _load(anchored)[0].mean(axis=1)
+    m_mono = _load(meaned)[0].mean(axis=1)
+    b_mono = before.mean(axis=1)
+
+    sub_before = _band_db(b_mono, sr, 30, 60)
+    assert _band_db(a_mono, sr, 30, 60) >= sub_before - 0.5     # anchored: sub held
+    assert _band_db(a_mono, sr, 1000, 8000) > _band_db(b_mono, sr, 1000, 8000) + 1.0  # mids/highs up
+    # the bug this mode exists for: mean-normalization CUTS the dark source's low bands
+    assert meaned["params"]["correction_db"][k] < -1.0
+    assert _band_db(m_mono, sr, 30, 60) < sub_before - 1.0
 
 
 def _crest(x):
@@ -554,3 +648,99 @@ def test_automate_cutoff_drops_depth_from_params():
                               lo_hz=300, hi_hz=6000)
     assert "depth" not in wet["params"]
     assert wet["params"]["target"] == "cutoff"
+
+
+# --- loopify (tile-safety) ----------------------------------------------------------------
+
+
+def _onset_idx(x, floor_db=-45.0):
+    """First sample above ``floor_db`` of the peak — the same downbeat detector loopify uses."""
+    mag = np.abs(x).max(axis=1)
+    above = np.where(mag > 10 ** (floor_db / 20) * float(mag.max()))[0]
+    return int(above[0]) if len(above) else -1
+
+
+def _kickish(n, sr=SR, freq=60.0, decay=8.0, amp=0.8, sustain=0.15):
+    """A decaying cosine over a sustained tone — a downbeat that is LOUD at sample 0 (a sine would
+    start at zero and make the onset detector's answer a property of the phase rather than of the
+    trim), with a tail that is still ringing at the cut (which is what makes a naive repeat click)."""
+    t = np.arange(n) / sr
+    body = amp * np.exp(-decay * t) * np.cos(2 * np.pi * freq * t)
+    return (body + sustain * np.cos(2 * np.pi * 220 * t)).astype(np.float32)[:, None]
+
+
+def _rendered_loop(lead_ms, body_len, sr=SR):
+    """A smplmix-style render: ``lead_ms`` of silence before the downbeat, then the body."""
+    lead = int(lead_ms / 1000 * sr)
+    return np.concatenate([np.zeros((lead, 1), dtype=np.float32), _kickish(body_len, sr=sr)])
+
+
+def test_loopify_trims_render_offset_to_downbeat_zero(tmp_path, monkeypatch):
+    """The ~5 ms smplmix render-offset is trimmed so the downbeat lands at sample 0."""
+    monkeypatch.setenv("SMPL_CAS_DIR", str(tmp_path / "cas"))
+    target = 4 * 60 * SR // 120                       # 1 bar @ 120 BPM, 4/4 → 2 s
+    src = _put_wav(_rendered_loop(5.0, target))
+    before, _ = _load(src)
+    assert _onset_idx(before) == int(0.005 * SR)      # the render offset is really there
+
+    wet = edit.apply_loopify(src, bpm=120.0, bars=1, beats_per_bar=4)
+    assert wet["role"] == "source.wet"
+    assert wet.get("op") == "loopify" and wet.get("op_version") == edit.LOOPIFY_OP_VERSION
+    assert wet.get("of") == src["id"] and wet.get("lineage") == [src["id"]]
+    assert wet["params"]["lead_trimmed_samples"] == int(0.005 * SR)
+
+    after, _ = _load(wet)
+    # ≤2, not ==0: the 64-sample anti-DC fade-in zeroes sample 0 by design (it kills start DC
+    # without softening the transient), so the first audible sample is 1.
+    assert _onset_idx(after) <= 2
+
+
+def test_loopify_sets_exact_bar_length(tmp_path, monkeypatch):
+    """Both a long render (truncated) and a short one (zero-padded) come out on the bar grid."""
+    monkeypatch.setenv("SMPL_CAS_DIR", str(tmp_path / "cas"))
+    target = int(round(2 * 4 * 60.0 / 132.0 * SR))    # 2 bars @ 132 BPM, 4/4
+    for body in (target + 5000, target - 5000):
+        wet = edit.apply_loopify(_put_wav(_rendered_loop(5.0, body)), bpm=132.0, bars=2)
+        assert wet["params"]["target_len_samples"] == target
+        after, _ = _load(wet)
+        assert after.shape[0] == target               # exact — N repeats stay on the grid
+
+
+def test_loopify_seam_is_declicked(tmp_path, monkeypatch):
+    """The seam fades to zero, so tiling the output twice has ~no discontinuity (no click)."""
+    monkeypatch.setenv("SMPL_CAS_DIR", str(tmp_path / "cas"))
+    target = 4 * 60 * SR // 120
+    src = _put_wav(_rendered_loop(5.0, target + 3000))
+    raw, _ = _load(src)
+    wet = edit.apply_loopify(src, bpm=120.0, bars=1, declick_ms=5.0)
+    after, _ = _load(wet)
+
+    assert abs(float(after[-1, 0])) < 1e-9            # end fade actually reaches zero
+    tiled = np.concatenate([after, after])
+    seam = abs(float(tiled[target, 0] - tiled[target - 1, 0]))
+    naive = np.concatenate([raw, raw])                # the un-loopified repeat, for contrast
+    naive_seam = abs(float(naive[len(raw), 0] - naive[len(raw) - 1, 0]))
+    assert seam < 1e-6
+    assert naive_seam > 0.05                          # the click loopify removes (~0.15 here)
+
+
+def test_loopify_keeps_a_musical_fade_in(tmp_path, monkeypatch):
+    """A lead LONGER than max_trim_ms is a musical fade-in/pickup, not the render offset — keep it."""
+    monkeypatch.setenv("SMPL_CAS_DIR", str(tmp_path / "cas"))
+    target = 4 * 60 * SR // 120
+    lead = int(0.05 * SR)                             # 50 ms ≫ the 12 ms render-offset bound
+    wet = edit.apply_loopify(_put_wav(_rendered_loop(50.0, target)), bpm=120.0, bars=1,
+                             max_trim_ms=12.0)
+    assert wet["params"]["lead_trimmed_samples"] == 0
+    after, _ = _load(wet)
+    assert np.max(np.abs(after[:lead - 1])) < 1e-6    # the lead survives untouched
+    assert _onset_idx(after) >= lead - 1
+
+
+def test_loopify_rejects_bad_params(tmp_path, monkeypatch):
+    monkeypatch.setenv("SMPL_CAS_DIR", str(tmp_path / "cas"))
+    src = _put_wav(_kickish(SR))
+    with pytest.raises(ValueError):
+        edit.apply_loopify(src, bpm=0.0)
+    with pytest.raises(ValueError):
+        edit.apply_loopify(src, bpm=120.0, bars=0)
