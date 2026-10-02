@@ -96,7 +96,10 @@ def _stft_power(y, sr: int):
     import librosa
     import numpy as np
 
+    from .spectrogram import pad_short_signal
+
     y = np.asarray(y, dtype="float32")
+    y = pad_short_signal(y, N_FFT)  # short one-shots → full window (no drop, no warning)
     S = np.abs(librosa.stft(y, n_fft=N_FFT, hop_length=HOP_LENGTH))  # (freq, frames)
     freqs = librosa.fft_frequencies(sr=sr, n_fft=N_FFT)
     return (S ** 2), freqs

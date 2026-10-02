@@ -20,6 +20,8 @@ def add_arguments(parser):
     add_selection_args(parser)
     parser.add_argument("--n-fft", type=int, default=2048, help="STFT window size (default 2048)")
     parser.add_argument("--hop-length", type=int, default=512, help="STFT hop (default 512)")
+    parser.add_argument("--no-cache", action="store_true",
+                        help="bypass the memo cache: force recompute and refresh the entry")
 
 
 def run(args) -> int:
@@ -39,7 +41,8 @@ def run(args) -> int:
         try:
             out.extend(
                 _spectral.spectral_audio_frame(
-                    audio, n_fft=args.n_fft, hop_length=args.hop_length
+                    audio, n_fft=args.n_fft, hop_length=args.hop_length,
+                    use_cache=not args.no_cache,
                 )
             )
         except Exception as exc:

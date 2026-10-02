@@ -55,14 +55,53 @@ def _top_level_help() -> int:
     return 0
 
 
+_TOOL_REPO = "git+https://github.com/chronick/smpl"
+
+# Our own heavy tools, mapped subcommand → the `tools/` uv project that ships it. Naming a
+# missing tool without the command to get it is a dead end, and only WE know where ours come
+# from — so this table exists purely to turn "not found" into a copy-pasteable install line.
+# Mostly 1:1 (`stems` → tools/smpl-stems); the exception is the MIDI twins, `transcribe-midi`
+# and `render-midi`, which are two console scripts of the single `tools/smpl-midi` project.
+_FIRST_PARTY_TOOLS = {
+    "stems": "smpl-stems",
+    "transcribe": "smpl-transcribe",
+    "embed": "smpl-embed",
+    "gen": "smpl-gen",
+    "cloud": "smpl-cloud",
+    "synth": "smpl-synth",
+    "plugin": "smpl-plugin",
+    "transcribe-midi": "smpl-midi",
+    "render-midi": "smpl-midi",
+}
+
+
+def _install_hint(name: str) -> Optional[str]:
+    """The exact `uv tool install` line for a known first-party tool, else ``None``.
+
+    An arbitrary ``smpl-<x>`` may come from anywhere; we must not invent a source for it.
+    """
+    project = _FIRST_PARTY_TOOLS.get(name)
+    if project is None:
+        return None
+    return f"uv tool install {_TOOL_REPO}#subdirectory=tools/{project}"
+
+
 def _exec_external(name: str, args: list[str]) -> int:
     exe = shutil.which(f"smpl-{name}")
     if exe is None:
-        sys.stderr.write(
+        msg = (
             f"smpl: unknown command {name!r}\n"
             f"      not a built-in, and no `smpl-{name}` found on PATH.\n"
-            f"      Run `smpl --help` for built-ins, or install the tool that provides it.\n"
         )
+        hint = _install_hint(name)
+        if hint is None:
+            msg += "      Run `smpl --help` for built-ins, or install the tool that provides it.\n"
+        else:
+            msg += (
+                f"      `{name}` is a first-party heavy tool — install it into its own venv:\n"
+                f"        {hint}\n"
+            )
+        sys.stderr.write(msg)
         return 127
     # Self-recursion guard: if `smpl-<name>` is actually one of OUR OWN multicall shims
     # (e.g. a console-script declared ahead of its module, or a name that collides with our

@@ -188,6 +188,129 @@ def test_lossy_pure_sine_not_flagged():
     assert res["qc.lossy.confidence"] < 0.3
 
 
+# --- 6b. lossy origin on steep-HF-decay content (vault-3fb7b) ---------------------------
+# The 2026-08-07 probe: a 64 kbps mp3 roundtrip of a synthetic techno loop located its
+# brickwall correctly but scored confidence 0.053. The loop's natural HF decay is steep
+# (most of its energy lives under 1 kHz), so the 0.999-cumulative-energy knee lands over a
+# kilohertz BELOW the encoder ceiling — and the slope/shelf evidence, gathered at the knee,
+# straddled live content and read as a gentle taper. The fixtures below reproduce that
+# spectral shape without needing an encoder: an FFT-zeroing brickwall is a harder ceiling
+# than any codec's, so anything a codec does is a weaker case of the same signature.
+
+
+def _techno_loop(dur=2.0, sr=SR, seed=11):
+    """Techno-loop-like signal: kick + saw bass + hats. Full band, steep natural HF decay."""
+    rng = np.random.default_rng(seed)
+    n = int(dur * sr)
+    sig = np.zeros(n, dtype=np.float64)
+
+    def add(i0, seg):
+        end = min(n, i0 + seg.shape[0])
+        if end > i0:
+            sig[i0:end] += seg[: end - i0]
+
+    beat = 60.0 / 130.0  # 130 BPM
+    for k in range(int(dur / beat)):  # kick: pitch-swept sine body on every beat
+        tt = np.arange(int(0.25 * sr)) / sr
+        f = 120.0 * np.exp(-tt * 40) + 45.0
+        add(int(k * beat * sr), 0.9 * np.exp(-tt * 28) * np.sin(2 * np.pi * np.cumsum(f) / sr))
+    for k in range(int(dur / (beat / 2))):  # saw bass on offbeat eighths
+        tt = np.arange(int(0.18 * sr)) / sr
+        f0 = 55.0 * (2 ** ((k % 3) / 12.0))
+        add(int(k * (beat / 2) * sr), 0.25 * np.exp(-tt * 12) * (2 * ((f0 * tt) % 1.0) - 1.0))
+    for k in range(int(dur / (beat / 4))):  # closed hats on 16ths (HF-tilted noise bursts)
+        ln = int(0.03 * sr)
+        tt = np.arange(ln) / sr
+        nz = np.diff(np.concatenate([[0.0], rng.normal(0, 1.0, ln)]))
+        add(int(k * (beat / 4) * sr), 0.06 * np.exp(-tt * 220) * nz)
+
+    return sig / (np.max(np.abs(sig)) + 1e-12) * 0.8
+
+
+def _brickwall(sig, fc, sr=SR):
+    """Hard FFT-zeroing low-pass at `fc` — a ceiling at least as hard as any encoder's."""
+    spec = np.fft.rfft(sig)
+    spec[np.fft.rfftfreq(sig.shape[0], d=1.0 / sr) >= fc] = 0.0
+    return np.fft.irfft(spec, n=sig.shape[0])
+
+
+def _as_frames(sig):
+    return np.asarray(sig, dtype=np.float64).reshape(-1, 1).astype(np.float32)
+
+
+def test_lossy_synthetic_brickwall_high_confidence():
+    # THE REGRESSION (vault-3fb7b): a hard 12 kHz ceiling on steep-HF-decay synthetic
+    # content scored 0.15 when the evidence was gathered at the energy knee. It is an
+    # unambiguous brickwall and must score high.
+    res = qc.lossy_origin(_as_frames(_brickwall(_techno_loop(), 12000.0)), SR)
+    assert res["qc.lossy.confidence"] > 0.5
+    # and the reported cutoff must be the WALL, not the energy knee a kilohertz below it
+    assert res["qc.lossy.spectral_cutoff_hz"] == pytest.approx(12000.0, abs=100.0)
+
+
+def test_lossy_synthetic_brickwall_beats_energy_knee():
+    """Pin the root cause: the 0.999-energy knee is NOT the wall on this content."""
+    sig = _brickwall(_techno_loop(), 12000.0)
+    mono = _as_frames(sig)[:, 0].astype(np.float64)
+    nfft, hop = 4096, 2048
+    win = np.hanning(nfft)
+    n_frames = 1 + (mono.shape[0] - nfft) // hop
+    acc = np.zeros(nfft // 2 + 1)
+    for i in range(n_frames):
+        acc += np.abs(np.fft.rfft(mono[i * hop : i * hop + nfft] * win))
+    power = (acc / n_frames) ** 2
+    freqs = np.fft.rfftfreq(nfft, d=1.0 / SR)
+    knee = float(freqs[int(np.searchsorted(np.cumsum(power) / power.sum(), qc._LOSSY_ENERGY_FRAC))])
+    # the knee undershoots the 12 kHz wall by a kilohertz — that is the whole bug
+    assert knee < 11500.0
+    # ...and the edge search recovers the wall from the same spectrum
+    assert qc.lossy_origin(_as_frames(sig), SR)["qc.lossy.spectral_cutoff_hz"] > knee + 500.0
+
+
+def test_lossy_synthetic_full_band_not_flagged():
+    # The SAME loop without the brickwall must stay low — otherwise the fixture proves
+    # nothing about brickwalls and only that this content is dark.
+    res = qc.lossy_origin(_as_frames(_techno_loop()), SR)
+    assert res["qc.lossy.confidence"] < 0.3
+
+
+def test_lossy_natural_full_band_brickwall_high_confidence():
+    # The natural-content half of the acceptance: broadband material with a hard 16 kHz
+    # ceiling (a 128 kbps LAME-shaped wall) also scores high.
+    rng = np.random.default_rng(9)
+    body = rng.normal(0, 0.25, int(1.5 * SR))
+    res = qc.lossy_origin(_as_frames(_brickwall(body, 16000.0)), SR)
+    assert res["qc.lossy.confidence"] > 0.5
+    assert res["qc.lossy.spectral_cutoff_hz"] == pytest.approx(16000.0, abs=100.0)
+
+
+def test_lossy_gentle_dark_rolloff_not_flagged():
+    # A naturally dark source with a GENTLE taper: band-limited-looking but no wall. The
+    # edge scan must not manufacture one out of the spectrum's own roll-off (nor out of the
+    # collapse every digital low-pass shows approaching Nyquist).
+    from scipy.signal import butter, sosfiltfilt
+
+    rng = np.random.default_rng(4)
+    sos = butter(1, 3000 / (SR / 2), btype="low", output="sos")
+    pad = sosfiltfilt(sos, rng.normal(0, 0.3, int(1.5 * SR)))
+    assert qc.lossy_origin(_as_frames(pad), SR)["qc.lossy.confidence"] < 0.3
+
+
+def test_lossy_confidence_tracks_ceiling_hardness():
+    # Confidence is evidence of a WALL, so it must rise with how wall-like the band limit
+    # is: a gentle taper at 12 kHz < a steep one < a hard FFT ceiling at the same corner.
+    from scipy.signal import butter, sosfiltfilt
+
+    base = _techno_loop()
+    confs = []
+    for order in (1, 3):
+        sos = butter(order, 12000 / (SR / 2), btype="low", output="sos")
+        confs.append(qc.lossy_origin(_as_frames(sosfiltfilt(sos, base)), SR)["qc.lossy.confidence"])
+    hard = qc.lossy_origin(_as_frames(_brickwall(base, 12000.0)), SR)["qc.lossy.confidence"]
+    assert confs[0] < confs[1] <= hard
+    assert confs[0] < 0.5 < hard
+
+
 # --- end-to-end: frame emission through the CAS -----------------------------------------
 
 

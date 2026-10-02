@@ -111,13 +111,16 @@ def _sosfilt(x, sr: int, *, lo: Optional[float] = None, hi: Optional[float] = No
 
 
 def _rms_env(x, sr: int):
-    """Per-frame RMS amplitude envelope (linear). Robust to signals shorter than one hop."""
+    """Per-frame RMS amplitude envelope (linear). Robust to signals shorter than one window."""
     import librosa
     import numpy as np
 
+    from .spectrogram import pad_short_signal
+
     x = np.asarray(x, dtype="float32")
-    if x.size < HOP_LENGTH:
-        return np.asarray([float(np.sqrt(np.mean(x * x))) if x.size else 0.0], dtype="float64")
+    if x.size == 0:
+        return np.asarray([0.0], dtype="float64")
+    x = pad_short_signal(x, FRAME_LENGTH)  # short one-shots → full window (no drop, no warning)
     rms = librosa.feature.rms(y=x, frame_length=FRAME_LENGTH, hop_length=HOP_LENGTH, center=True)[0]
     return np.asarray(rms, dtype="float64")
 

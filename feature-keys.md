@@ -63,6 +63,9 @@ adding a row is additive and non-breaking).
 | `rhythm.bpm_confidence` | Essentia | 0–1 | scalar | vault-32n3 |
 | `rhythm.bpm_candidates` | Essentia | BPM[] | list | vault-32n3 |
 | `rhythm.time_signature` | Essentia | n/d string | scalar | vault-32n3 |
+| `rhythm.swing` | Essentia | 0–1 (fraction of a grid step the even steps are delayed) | scalar | vault-6m62 |
+| `rhythm.swing_confidence` | Essentia | 0–1 | scalar | vault-6m62 |
+| `rhythm.microtiming_beats` | Essentia | beats (mean abs. residual nudge after swing) | scalar | vault-6m62 |
 | `tonal.key_key` | Essentia | pitch class | scalar | vault-379o |
 | `tonal.key_scale` | Essentia | major/minor | scalar | vault-379o |
 | `tonal.tuning_frequency` | Essentia | Hz | scalar | vault-379o |
@@ -163,6 +166,14 @@ role-stats frame is the registered keys carrying corpus statistics.
   owned by **vault-3vau** (loudness tier). The QC ticket (vault-1e9a) **reuses**
   that frame for its clipping pass/fail rather than recomputing under a `qc.*`
   key. One measurement, one owner.
+- **Groove** (`rhythm.swing`, `rhythm.swing_confidence`,
+  `rhythm.microtiming_beats`; vault-6m62, `smpl groove`) is expressed in
+  **`smpl pattern`'s** timing model — swing delays every *even* grid step by
+  `swing × stepGap` beats, and the per-step `nudge` residual is in beats — so the
+  measurement round-trips into a generated loop with no unit conversion. `smpl
+  groove` reports the tempo it measured against on the frame's `params.bpm`, **not**
+  as `rhythm.bpm`: that key stays owned by the beat grid (vault-32n3). One
+  measurement, one owner.
 - `timbre.*` (AudioCommons, perceptual) is intentionally separate from
   `lowlevel.*` (Essentia, objective) even where they sound similar
   (`timbre.sharpness` ≠ any `lowlevel.*` — the former is the perceptual 0–100

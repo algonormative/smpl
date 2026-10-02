@@ -2,13 +2,16 @@
 
 Every op here consumes TWO resolved audio frames and emits ONE wet `audio` frame whose
 ``lineage`` names BOTH inputs — establishing the 2-input lineage convention the rest of the
-duo family (mix, sidechain, convolve, …) will follow. The single-input edit ops in
+duo family (mix, convolve, …) will follow. The single-input edit ops in
 ``smpl_analysis.edit`` set ``lineage = [src.id]``; a duo op sets ``lineage = [a.id, b.id]``.
 
 First op: **vocode** — a classic analysis/synthesis channel vocoder. The MODULATOR's
 per-band amplitude envelope is imprinted onto the CARRIER's per-band spectrum, so the output
 speaks with the modulator's articulation but keeps the carrier's timbre. Art-direction linchpin
 for WRUM (the hell-pole voice): FLOW spat render = MODULATOR, deep harsh bass voice = CARRIER.
+
+Second op: **sidechain** — duck a TARGET (sub, rumble, mix) under a TRIGGER's transients
+(the kick). The Birmingham rumble + glue move: fast attack, release in the 20–350 ms range.
 
 Heavy imports (scipy, soundfile) stay INSIDE the functions so a cold pipe stage starts fast.
 Deterministic scipy/numpy — no shell-out, empty env-fingerprint, bit-identical across runs.
@@ -22,6 +25,7 @@ import io
 # op_version — bumped on ANY behavior change (spec → *Memoization*).
 # ---------------------------------------------------------------------------
 VOCODE_OP_VERSION = "vocode@2"  # @2: body-normalize before ess (vowel-crush fix); attack 2 ms
+SIDECHAIN_OP_VERSION = "sidechain@1"
 
 
 # ---------------------------------------------------------------------------
@@ -38,6 +42,22 @@ def _load_mono(audio_frame: dict):
     data, sr = sf.read(str(src), dtype="float64", always_2d=True)
     mono = data.mean(axis=1) if data.shape[1] > 1 else data[:, 0]
     return np.ascontiguousarray(mono, dtype="float64"), int(sr)
+
+
+def _load_channels(audio_frame: dict):
+    """Resolve an audio frame's CAS blob to ``((n, ch) float64 samples, sr)`` — channels KEPT.
+
+    The mono-mixing sibling of :func:`_load_mono`, for ops that process a target in place
+    (sidechain) rather than analyzing it.
+    """
+    import numpy as np
+    import soundfile as sf
+
+    from smplstream import cas
+
+    src = cas.get_path(audio_frame["hash"])
+    data, sr = sf.read(str(src), dtype="float64", always_2d=True)
+    return np.ascontiguousarray(data, dtype="float64"), int(sr)
 
 
 def _rms(x) -> float:
@@ -210,6 +230,113 @@ def apply_vocode(
         modulator_frame=modulator_frame,
         op="vocode",
         op_version=VOCODE_OP_VERSION,
+        params=params,
+    )
+
+
+# ---------------------------------------------------------------------------
+# sidechain — duck a TARGET by a TRIGGER's transients (the kick-vs-sub glue move).
+# ---------------------------------------------------------------------------
+def apply_sidechain(
+    target_frame: dict,
+    trigger_frame: dict,
+    *,
+    attack_ms: float = 5.0,
+    release_ms: float = 120.0,
+    depth_db: float = 12.0,
+    threshold_db: float = -30.0,
+) -> dict:
+    """Duck ``target_frame`` under ``trigger_frame``'s transients — a wet `audio` frame.
+
+    The Birmingham rumble / glue move: a kick (TRIGGER) pushes a sub, rumble, or full mix
+    (TARGET) out of the way so the transient lands in cleared space, then the target recovers
+    on the release. The TRIGGER is mono-mixed and, if its sample rate differs, resampled to the
+    target's sr (``scipy.resample_poly``), then aligned to the target's timeline — zero-padded
+    if short, truncated if long. The TARGET keeps all of its channels: one gain curve is applied
+    to every channel, so a stereo target stays stereo and its image is untouched.
+
+    Gain curve: a rectified peak envelope of the trigger, followed with the asymmetric one-pole
+    (``attack_ms`` rising / ``release_ms`` falling), is read in dB **relative to full scale**
+    (0 dBFS). ``threshold_db`` is therefore an absolute dBFS knee: at or below it the target is
+    untouched, at 0 dBFS the target is pulled down by the full ``depth_db``, and in between the
+    reduction interpolates linearly in dB::
+
+        gr_db = -depth_db * clip((env_dbfs - threshold_db) / (0 - threshold_db), 0, 1)
+
+    The duck's shape is the follower's — fast attack pulls down on the transient, the release
+    time constant governs the recovery. Output is **not** re-normalized (a duck that renormalizes
+    is not a duck). ``depth_db=0`` is an exact no-op.
+
+    ``params`` records the settings plus the MEASURED result — ``gr_max_db`` (the deepest gain
+    reduction actually applied) and ``ducked_fraction`` (share of samples pulled down by more
+    than 0.1 dB) — so an A/B can be read off the frame without re-analyzing the audio.
+
+    Emits role ``<target_role>.wet``, op ``sidechain``, ``lineage = [target.id, trigger.id]``.
+    """
+    import numpy as np
+    from scipy.signal import resample_poly
+
+    if attack_ms <= 0:
+        raise ValueError(f"attack_ms must be > 0 (got {attack_ms})")
+    if release_ms <= 0:
+        raise ValueError(f"release_ms must be > 0 (got {release_ms})")
+    if depth_db < 0:
+        raise ValueError(f"depth_db must be >= 0 (got {depth_db})")
+    if threshold_db >= 0:
+        raise ValueError(f"threshold_db must be < 0 dBFS (got {threshold_db})")
+
+    target, sr = _load_channels(target_frame)
+    trig, trig_sr = _load_mono(trigger_frame)
+
+    # Sample-rate reconcile: resample the TRIGGER to the target's sr.
+    if trig_sr != sr:
+        from math import gcd
+
+        g = gcd(int(sr), int(trig_sr)) or 1
+        trig = np.ascontiguousarray(resample_poly(trig, sr // g, trig_sr // g), dtype="float64")
+
+    # Align the trigger to the TARGET's timeline (the target is never truncated).
+    n = int(target.shape[0])
+    if trig.shape[0] < n:
+        trig = np.concatenate([trig, np.zeros(n - trig.shape[0], dtype="float64")])
+    else:
+        trig = trig[:n]
+
+    a_att = _one_pole_coef(sr, attack_ms)
+    a_rel = _one_pole_coef(sr, release_ms)
+
+    gr_db = np.zeros(n, dtype="float64")
+    out = target
+    if n > 0:
+        env = _follow_env(np.abs(trig)[None, :], a_att, a_rel)[0]
+        env_db = 20.0 * np.log10(np.maximum(env, 1e-12))
+        drive = np.clip((env_db - float(threshold_db)) / (0.0 - float(threshold_db)), 0.0, 1.0)
+        gr_db = -float(depth_db) * drive
+        out = target * np.power(10.0, gr_db / 20.0)[:, None]
+    out = out.astype("float32")
+
+    gr_max_db = round(abs(float(np.min(gr_db))), 4) if gr_db.size else 0.0
+    ducked = float(np.count_nonzero(gr_db < -0.1) / gr_db.size) if gr_db.size else 0.0
+
+    params = {
+        "attack_ms": float(attack_ms),
+        "release_ms": float(release_ms),
+        "depth_db": float(depth_db),
+        "threshold_db": float(threshold_db),
+        "threshold_ref": "dbfs",
+        "sr_hz": int(sr),
+        "gr_max_db": gr_max_db,
+        "ducked_fraction": round(ducked, 4),
+        "target_hash": target_frame.get("hash"),
+        "trigger_hash": trigger_frame.get("hash"),
+    }
+    return _emit_duo_audio(
+        out,
+        sr,
+        carrier_frame=target_frame,
+        modulator_frame=trigger_frame,
+        op="sidechain",
+        op_version=SIDECHAIN_OP_VERSION,
         params=params,
     )
 

@@ -36,6 +36,16 @@ SHORT_TERM_HOP_S = 1.0
 # Default ceiling for true-peak "over" markers (the conventional -1 dBTP streaming ceiling).
 DEFAULT_OVER_CEILING_DBTP = -1.0
 
+# Declared default table for the memo key (spec → *Parameter canonicalization*): omitted
+# params are filled from THIS table for THIS op_version before hashing, so the key stays
+# complete and stable even if a later version changes a default.
+MEMO_DEFAULTS = {
+    "true_peak_oversample": TRUE_PEAK_OVERSAMPLE,
+    "short_term_window_s": SHORT_TERM_WINDOW_S,
+    "short_term_hop_s": SHORT_TERM_HOP_S,
+    "over_ceiling_dbtp": DEFAULT_OVER_CEILING_DBTP,
+}
+
 
 def _to_db(x: float) -> float:
     """Linear amplitude -> dBTP/dBFS. Returns -inf for silence."""
@@ -168,17 +178,23 @@ def analyze_array(data, sr: int, *, over_ceiling_dbtp: float = DEFAULT_OVER_CEIL
 
 
 def loudness_frames(audio_frame: dict, *, emit_markers: bool = True,
-                    over_ceiling_dbtp: float = DEFAULT_OVER_CEILING_DBTP) -> list[dict]:
+                    over_ceiling_dbtp: float = DEFAULT_OVER_CEILING_DBTP,
+                    use_cache: bool = True) -> list[dict]:
     """Derive loudness frames for one `audio` frame.
 
     Returns a `feature` frame (always) carrying the three registered keys, plus an optional
     `marker` frame (role "true-peak-over") locating inter-sample overs when any are found.
     The aggregator (`smpl cat`) can call this hook the same way it calls describe.
-    """
-    from smplstream import cas, frames as F
 
-    src = cas.get_path(audio_frame["hash"])
-    res = analyze_path(src, over_ceiling_dbtp=over_ceiling_dbtp)
+    **Memoized** (spec → *Memoization*): keyed on
+    ``(op, op_version, input audio hash, canonical params)`` with an empty env fingerprint
+    (pure-Python/deterministic). A hit emits the cached measurement without decoding the
+    audio at all; ``use_cache=False`` forces recompute and refreshes the entry. The feature
+    frame's params carry ``cache_hit`` so a caller can see which path ran. ``emit_markers``
+    is NOT part of the key — over-points fall out of the same true-peak pass, so they are
+    always cached and the flag only gates emission.
+    """
+    from smplstream import cas, frames as F, memo, memostore
 
     params = {
         "true_peak_oversample": TRUE_PEAK_OVERSAMPLE,
@@ -186,12 +202,28 @@ def loudness_frames(audio_frame: dict, *, emit_markers: bool = True,
         "short_term_hop_s": SHORT_TERM_HOP_S,
         "over_ceiling_dbtp": over_ceiling_dbtp,
     }
+    mkey = memo.memo_key(
+        OP, OP_VERSION, [audio_frame["hash"]], params=params, defaults=MEMO_DEFAULTS
+    )
 
-    feat = {
-        "loudness.integrated_lufs": _db_round(res["integrated_lufs"]),
-        "loudness.true_peak_dbtp": _db_round(res["true_peak_dbtp"]),
-        "loudness.max_short_term_lufs": _db_round(res["max_short_term_lufs"]),
-    }
+    payload = memostore.get_json(mkey) if use_cache else None
+    cache_hit = payload is not None
+
+    if not cache_hit:
+        src = cas.get_path(audio_frame["hash"])
+        res = analyze_path(src, over_ceiling_dbtp=over_ceiling_dbtp)
+        payload = {
+            "feat": {
+                "loudness.integrated_lufs": _db_round(res["integrated_lufs"]),
+                "loudness.true_peak_dbtp": _db_round(res["true_peak_dbtp"]),
+                "loudness.max_short_term_lufs": _db_round(res["max_short_term_lufs"]),
+            },
+            "over_points": res["over_points"],
+        }
+        memostore.put_json(mkey, payload, op=OP, op_version=OP_VERSION)
+
+    feat = payload["feat"]
+    over_points = payload["over_points"]
 
     out: list[dict] = [
         F.feature_frame(
@@ -200,14 +232,14 @@ def loudness_frames(audio_frame: dict, *, emit_markers: bool = True,
             of=audio_frame["id"],
             op=OP,
             op_version=OP_VERSION,
-            params=params,
+            params={**params, "cache_hit": cache_hit},
         )
     ]
 
-    if emit_markers and res["over_points"]:
+    if emit_markers and over_points:
         out.append(
             F.marker_frame(
-                res["over_points"],
+                over_points,
                 role="true-peak-over",
                 of=audio_frame["id"],
                 op=OP,

@@ -103,6 +103,44 @@ def test_unknown_command_path_discovery(env):
     assert b"not a built-in" in r.stderr
 
 
+@pytest.mark.parametrize(
+    ("name", "project"),
+    [
+        ("stems", "smpl-stems"),
+        ("transcribe", "smpl-transcribe"),
+        ("embed", "smpl-embed"),
+        ("gen", "smpl-gen"),
+        ("cloud", "smpl-cloud"),
+        ("synth", "smpl-synth"),
+        # The MIDI twins: two console scripts, one `tools/smpl-midi` project.
+        ("transcribe-midi", "smpl-midi"),
+        ("render-midi", "smpl-midi"),
+    ],
+)
+def test_missing_first_party_tool_prints_install_command(env, tmp_path, name, project):
+    # A missing heavy tool must hand back the exact copy-pasteable install line, not just its
+    # name. PATH is emptied so an actually-installed `smpl-<x>` can't be exec'd instead.
+    e = dict(env)
+    e["PATH"] = str(tmp_path)
+    r = _run([SMPL, name], e)
+    assert r.returncode == 127
+    expected = (
+        f"uv tool install git+https://github.com/chronick/smpl#subdirectory=tools/{project}"
+    )
+    assert expected in r.stderr.decode(), r.stderr
+
+
+def test_missing_unknown_tool_has_no_install_command(env, tmp_path):
+    # We can't invent a source for someone else's `smpl-<x>` — generic message only.
+    e = dict(env)
+    e["PATH"] = str(tmp_path)
+    r = _run([SMPL, "frobnicate"], e)
+    assert r.returncode == 127
+    err = r.stderr.decode()
+    assert b"uv tool install" not in r.stderr
+    assert "not a built-in" in err and "install the tool that provides it" in err
+
+
 def test_help_lists_builtins(env):
     r = _run(["smpl", "--help"], env)
     assert b"read" in r.stdout and b"as-wav" in r.stdout and b"external commands" in r.stdout
@@ -134,3 +172,31 @@ def test_id_collision_emits_error_frame(env, tone):
     out = _run(["smpl", "resolve", frame["id"]], env, stdin=collided)
     assert any(json.loads(l).get("kind") == "error" and json.loads(l)["data"]["code"] == "id_collision"
                for l in out.stdout.splitlines() if l.strip()) or out.returncode != 0
+
+
+def _loudness_feature(out: bytes):
+    return next(f for f in _frames(out) if f["kind"] == "feature" and f["role"] == "loudness")
+
+
+def test_loudness_pipe_is_memoized(env, tone):
+    """A warm re-run of the same pipe reports a cache hit — the memo lookup is live."""
+    src = _run(["smpl", "read", tone], env).stdout
+
+    cold = _run(["smpl", "loudness"], env, stdin=src)
+    assert cold.returncode == 0, cold.stderr
+    cold_feat = _loudness_feature(cold.stdout)
+    assert cold_feat["params"]["cache_hit"] is False
+
+    warm = _run(["smpl", "loudness"], env, stdin=src)
+    warm_feat = _loudness_feature(warm.stdout)
+    assert warm_feat["params"]["cache_hit"] is True
+    assert warm_feat["data"] == cold_feat["data"]  # same measurement, no recompute
+
+
+def test_loudness_no_cache_flag_bypasses(env, tone):
+    src = _run(["smpl", "read", tone], env).stdout
+    _run(["smpl", "loudness"], env, stdin=src)  # warm the entry
+
+    bypass = _run(["smpl", "loudness", "--no-cache"], env, stdin=src)
+    assert bypass.returncode == 0, bypass.stderr
+    assert _loudness_feature(bypass.stdout)["params"]["cache_hit"] is False

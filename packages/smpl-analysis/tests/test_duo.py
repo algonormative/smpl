@@ -1,8 +1,12 @@
-"""Tests for smpl_analysis.duo — the first 2-audio-input op family (ticket vault-nkvw).
+"""Tests for smpl_analysis.duo — the 2-audio-input op family (tickets vault-nkvw, vault-d3qk).
 
 Covers the ``vocode`` channel vocoder: modulator-envelope tracking, carrier-timbre transfer,
 determinism, sample-rate mismatch, and the 2-input lineage convention (lineage carries BOTH
 the carrier and modulator ids).
+
+Covers the ``sidechain`` duck: the A/B on a sub under a kick (RMS pulled down under each
+transient, unchanged between them), stereo passthrough, the depth-0 no-op, parameter
+validation, and the same 2-input lineage convention.
 """
 
 from __future__ import annotations
@@ -203,3 +207,172 @@ def test_lineage_carries_both_inputs():
     # peak up to the 0.98 safety cap (intelligibility fix — vowels no longer crushed).
     out, _ = _load_mono(wet)
     assert 0.85 < np.max(np.abs(out)) <= 0.98 + 1e-4
+
+
+# ===========================================================================
+# sidechain (vault-d3qk) — duck a TARGET under a TRIGGER's transients.
+# ===========================================================================
+def _sub_sine(dur=2.0, sr=SR, f0=55.0, amp=0.5):
+    """A steady sub-bass sine — the duck target (constant RMS, so any dip IS the duck)."""
+    t = np.arange(int(dur * sr)) / sr
+    return (amp * np.sin(2 * np.pi * f0 * t)).astype("float32")
+
+
+def _kick_train(dur=2.0, sr=SR, period=0.5, decay_s=0.05, amp=0.9):
+    """Short decaying 60 Hz bursts on a fixed grid with silence between — the trigger."""
+    n = int(dur * sr)
+    sig = np.zeros(n, dtype="float64")
+    onsets = []
+    k = 0
+    while int(k * period * sr) < n:
+        start = int(k * period * sr)
+        ln = min(int(0.15 * sr), n - start)
+        tt = np.arange(ln) / sr
+        sig[start:start + ln] += amp * np.sin(2 * np.pi * 60.0 * tt) * np.exp(-tt / decay_s)
+        onsets.append(start)
+        k += 1
+    return sig.astype("float32"), onsets
+
+
+def _rms(x):
+    return float(np.sqrt(np.mean(np.asarray(x, dtype="float64") ** 2) + 1e-20))
+
+
+def _rms_delta_db(wet, dry, lo_s, hi_s, onset, sr=SR):
+    """dB difference of wet vs dry RMS over ``[onset+lo_s, onset+hi_s)``."""
+    a, b = onset + int(lo_s * sr), onset + int(hi_s * sr)
+    return 20.0 * np.log10(_rms(wet[a:b]) / _rms(dry[a:b]))
+
+
+# ---------------------------------------------------------------------------
+# 6. The A/B: the sub ducks under each kick and is untouched between kicks.
+# ---------------------------------------------------------------------------
+def test_sidechain_ducks_sub_under_kick():
+    dry = _sub_sine()
+    trig_sig, onsets = _kick_train()
+    target = _put_wav(dry, SR, role="sub")
+    trigger = _put_wav(trig_sig, SR, role="kick")
+
+    wet_frame = duo.apply_sidechain(target, trigger, attack_ms=5.0, release_ms=120.0, depth_db=12.0)
+    wet, sr = _load_mono(wet_frame)
+    assert sr == SR and len(wet) == len(dry)
+
+    # Under each kick (8–45 ms after onset): a deep duck. The realized depth sits a little
+    # under the 12 dB setting because the peak follower's attack ramp never quite reaches the
+    # trigger's own peak — which is exactly what the frame reports as gr_max_db.
+    gr_max = wet_frame["params"]["gr_max_db"]
+    for onset in onsets:
+        d = _rms_delta_db(wet, dry, 0.008, 0.045, onset)
+        assert -12.0 - 0.5 <= d <= -8.0, f"duck under kick @{onset} was {d:.2f} dB"
+        assert abs(d + gr_max) < 0.5, f"duck {d:.2f} dB disagrees with reported gr_max_db {gr_max}"
+
+    # Between kicks (400–490 ms after onset, i.e. just before the next one): recovered.
+    for onset in onsets[:-1]:
+        d = _rms_delta_db(wet, dry, 0.40, 0.49, onset)
+        assert abs(d) < 0.5, f"target changed by {d:.2f} dB between kicks (expected < 0.5)"
+
+
+# ---------------------------------------------------------------------------
+# 7. params carry the MEASURED reduction (the A/B evidence, readable off the frame).
+# ---------------------------------------------------------------------------
+def test_sidechain_params_carry_measured_reduction():
+    trig_sig, _ = _kick_train(dur=1.0)
+    target = _put_wav(_sub_sine(dur=1.0), SR, role="sub")
+    trigger = _put_wav(trig_sig, SR, role="kick")
+
+    wet = duo.apply_sidechain(target, trigger, depth_db=12.0)
+    p = wet["params"]
+    assert p["attack_ms"] == 5.0 and p["release_ms"] == 120.0
+    assert p["depth_db"] == 12.0 and p["threshold_db"] == -30.0
+    assert 8.0 < p["gr_max_db"] <= 12.0, p["gr_max_db"]
+    assert 0.0 < p["ducked_fraction"] < 1.0, p["ducked_fraction"]
+
+
+# ---------------------------------------------------------------------------
+# 8. Lineage: 2-input convention, wet role, op/op_version.
+# ---------------------------------------------------------------------------
+def test_sidechain_lineage_carries_both_inputs():
+    trig_sig, _ = _kick_train(dur=0.5)
+    target = _put_wav(_sub_sine(dur=0.5), SR, role="sub")
+    trigger = _put_wav(trig_sig, SR, role="kick")
+
+    wet = duo.apply_sidechain(target, trigger)
+    assert wet["kind"] == "audio"
+    assert wet["role"] == "sub.wet"
+    assert wet.get("of") == target["id"]
+    assert wet.get("lineage") == [target["id"], trigger["id"]]
+    assert wet.get("op") == "sidechain"
+    assert wet.get("op_version") == duo.SIDECHAIN_OP_VERSION
+
+
+# ---------------------------------------------------------------------------
+# 9. A stereo target stays stereo — one gain curve over both channels.
+# ---------------------------------------------------------------------------
+def test_sidechain_stereo_target_keeps_channels():
+    mono = _sub_sine(dur=0.5)
+    stereo = np.stack([mono, 0.5 * mono], axis=1)
+    target = _put_wav(stereo, SR, role="mix")
+    trig_sig, _ = _kick_train(dur=0.5)
+    trigger = _put_wav(trig_sig, SR, role="kick")
+
+    from smplstream import cas
+
+    wet = duo.apply_sidechain(target, trigger)
+    assert wet["meta"]["ch"] == 2
+    data, sr = sf.read(str(cas.get_path(wet["hash"])), dtype="float64", always_2d=True)
+    assert data.shape[1] == 2 and data.shape[0] == len(mono)
+    # Same curve on both channels → the L/R ratio of the source survives.
+    loud = np.abs(data[:, 0]) > 1e-4
+    ratio = data[loud, 1] / data[loud, 0]
+    assert np.allclose(ratio, 0.5, atol=1e-3)
+
+
+# ---------------------------------------------------------------------------
+# 10. depth 0 is an exact no-op; a short / off-sr trigger aligns to the target.
+# ---------------------------------------------------------------------------
+def test_sidechain_depth_zero_is_noop():
+    dry = _sub_sine(dur=0.5)
+    target = _put_wav(dry, SR, role="sub")
+    trig_sig, _ = _kick_train(dur=0.5)
+    trigger = _put_wav(trig_sig, SR, role="kick")
+
+    wet = duo.apply_sidechain(target, trigger, depth_db=0.0)
+    out, _ = _load_mono(wet)
+    assert np.allclose(out, dry.astype("float64"), atol=1e-6)
+    assert wet["params"]["gr_max_db"] == 0.0
+    assert wet["params"]["ducked_fraction"] == 0.0
+
+
+def test_sidechain_short_and_off_sr_trigger_aligns_to_target():
+    dry = _sub_sine(dur=1.0)
+    target = _put_wav(dry, SR, role="sub")
+    # Half as long as the target AND at a different sample rate: resampled, then zero-padded.
+    trig_sig, _ = _kick_train(dur=0.5, sr=22050, period=0.25)
+    trigger = _put_wav(trig_sig, 22050, role="kick")
+
+    wet = duo.apply_sidechain(target, trigger, release_ms=60.0)
+    out, sr = _load_mono(wet)
+    assert sr == SR and len(out) == len(dry)
+    assert wet["params"]["sr_hz"] == SR
+    # First half ducked, tail (past the padded-out trigger) untouched.
+    assert _rms(out[: SR // 2]) < 0.9 * _rms(dry[: SR // 2])
+    assert np.allclose(out[-SR // 4:], dry[-SR // 4:].astype("float64"), atol=1e-6)
+
+
+# ---------------------------------------------------------------------------
+# 11. Parameter validation.
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("kwargs", [
+    {"attack_ms": 0.0},
+    {"attack_ms": -1.0},
+    {"release_ms": 0.0},
+    {"depth_db": -3.0},
+    {"threshold_db": 0.0},
+    {"threshold_db": 6.0},
+])
+def test_sidechain_rejects_bad_params(kwargs):
+    target = _put_wav(_sub_sine(dur=0.2), SR, role="sub")
+    trig_sig, _ = _kick_train(dur=0.2)
+    trigger = _put_wav(trig_sig, SR, role="kick")
+    with pytest.raises(ValueError):
+        duo.apply_sidechain(target, trigger, **kwargs)

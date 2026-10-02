@@ -345,7 +345,8 @@ Use raw mode only to reach an external effect; stay in frames otherwise.
 ### Role naming conventions
 
 `source` · `prompt` · `stem:<name>`
-(`stem:drums|bass|vocals|other|guitar|piano` — the 6-stem htdemucs set) ·
+(`stem:drums|bass|vocals|other|guitar|piano` — the 6-stem htdemucs set;
+`stem:instrumental` — the 2-stem BS-RoFormer set's non-vocal half) ·
 `slice:<n>` · `<name>.wet` / `.dry` · `caption` · `lyrics` ·
 `spectrogram[:mel|cqt|hpss]` · `waveform` · `onset` / `beat` / `section`.
 Colon-namespaced, kebab inside segments. Roles are NOT guaranteed unique within

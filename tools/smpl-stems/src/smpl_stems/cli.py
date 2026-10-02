@@ -5,10 +5,17 @@ Separation:  smpl stems [--model M] [--role-filter ROLE] [input.wav]
 Models:      smpl stems models list | install <id> | update <id> | rm <id>
 
 A filter that consumes ONE audio frame and emits N audio frames, one per stem
-(role ``stem:drums|bass|vocals|other|guitar|piano``, op ``demucs``). Input
-resolves from (in priority order):
+(role ``stem:drums|bass|vocals|other|guitar|piano|instrumental``, op ``demucs``).
+Input resolves from (in priority order):
   1. a positional ``input.wav`` path argument, or
   2. the single (last-wins) audio frame on a stdin frame stream.
+
+Models (``--model`` / ``$SMPL_STEMS_MODEL``; see ``backends.KNOWN_MODELS``):
+  * ``htdemucs_6s`` — 6-stem drums/bass/vocals/other/guitar/piano (default), **local** tier.
+  * ``htdemucs``    — 4-stem drums/bass/vocals/other, **local** tier.
+  * ``bs-roformer`` — 2-stem vocals/instrumental (UVR BS-RoFormer, ~3 dB SDR over Demucs on
+    vocals); heavier — route to the **mac-mini batch tier**. Routing is guidance, not
+    enforced here.
 
 Two-tier degrade path (HARD RULE): the heavy separator (Demucs via
 ``python-audio-separator`` → torch) is lazy-imported inside ``run()`` via
@@ -38,10 +45,20 @@ def _build_parser():
 
     p = argparse.ArgumentParser(
         prog="smpl stems",
-        description="separate one audio frame into N stem frames (drums/bass/vocals/other/guitar/piano)",
+        description=(
+            "separate one audio frame into N stem frames "
+            "(drums/bass/vocals/other/guitar/piano, or vocals/instrumental for bs-roformer)"
+        ),
     )
     p.add_argument("input", nargs="?", help="input audio file (else read a frame stream from stdin)")
-    p.add_argument("--model", help="separator model (default: $SMPL_STEMS_MODEL or htdemucs_6s)")
+    p.add_argument(
+        "--model",
+        help=(
+            "separator model: htdemucs_6s (default, local) | htdemucs (local) | "
+            "bs-roformer (2-stem vocals/instrumental, mac-mini batch tier) "
+            "[default: $SMPL_STEMS_MODEL or htdemucs_6s]"
+        ),
+    )
     p.add_argument("--role", help="role of the input audio frame to separate (default: last-wins audio)")
     return p
 
