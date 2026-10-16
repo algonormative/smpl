@@ -364,7 +364,7 @@ def test_qc_audio_frame_emits_feature_and_keys(tmp_path, monkeypatch):
     for f in derived:
         assert f.get("of") == af["id"]
         assert f.get("op") == "qc"
-        assert f.get("op_version") == "qc@1"
+        assert f.get("op_version") == "qc@2"
 
     # the injected click yields a defect marker frame
     assert markers, "expected a marker frame for the injected click"
@@ -376,3 +376,40 @@ def test_qc_audio_frame_no_markers(tmp_path, monkeypatch):
     af = _put_wav(_tone(amp=0.4), SR)
     derived = qc.qc_audio_frame(af, want_markers=False)
     assert all(f["kind"] == "feature" for f in derived)
+
+
+# --- 7. one-shot shape metrics (vault-1gdf1) -------------------------------------------
+
+
+def _hit(dur=0.5, tau=0.05):
+    t = np.arange(int(dur * SR)) / SR
+    return (0.8 * np.exp(-t / tau) * np.sin(2 * np.pi * 150 * t)).reshape(-1, 1).astype(np.float32)
+
+
+def test_shape_hit_has_fast_attack_no_late_energy():
+    s = _hit()
+    assert qc.attack_time_s(s, SR) < 0.02
+    assert qc.late_energy_share(s, SR) == 0.0  # shorter than the boundary
+
+
+def test_shape_swell_has_late_peak_and_late_energy():
+    t = np.arange(int(3 * SR)) / SR
+    swell = (np.sin(np.pi * t / 3.0) * np.sin(2 * np.pi * 220 * t)).reshape(-1, 1).astype(np.float32)
+    assert qc.attack_time_s(swell, SR) == pytest.approx(1.5, abs=0.05)
+    assert qc.late_energy_share(swell, SR) > 0.5
+
+
+def test_late_energy_boundary_is_named_constant():
+    assert qc.LATE_ENERGY_BOUNDARY_S == 1.0
+    # constant-amplitude 2 s signal: half the energy sits after the 1 s boundary
+    s = _tone(dur=2.0)
+    assert qc.late_energy_share(s, SR) == pytest.approx(0.5, abs=0.01)
+
+
+def test_shape_silence_is_none():
+    z = np.zeros((SR, 1), dtype=np.float32)
+    assert qc.attack_time_s(z, SR) is None and qc.late_energy_share(z, SR) is None
+
+
+def test_op_version_bumped_for_shape_keys():
+    assert qc.OP_VERSION == "qc@2"

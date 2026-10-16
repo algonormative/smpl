@@ -51,6 +51,9 @@ adding a row is additive and non-breaking).
 | `qc.lossy.spectral_cutoff_hz` | qc | Hz | scalar | vault-1e9a |
 | `qc.lossy.expected_nyquist_hz` | qc | Hz | scalar | vault-1e9a |
 | `qc.lossy.confidence` | qc | 0–1 | scalar | vault-1e9a |
+| `qc.shape.attack_time_s` | qc | s | scalar | vault-1gdf1 |
+| `qc.shape.late_energy_share` | qc | 0–1 | scalar | vault-1gdf1 |
+| `qc.audiobox.ce` / `.cu` / `.pc` / `.pq` | Audiobox-Aesthetics (opt-in) | 1–10 | scalar | vault-1gdf1 |
 | `timbre.hardness` | AudioCommons (perceptual) | 0–100 | scalar | vault-14ia |
 | `timbre.depth` | AudioCommons | 0–100 | scalar | vault-14ia |
 | `timbre.brightness` | AudioCommons | 0–100 | scalar | vault-14ia |

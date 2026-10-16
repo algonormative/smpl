@@ -125,6 +125,10 @@ smpl read hot.wav | smpl normalize --lufs -14 | smpl write leveled.wav
 # Technical QC + forensics (a lossy origin shows as a brickwall low-pass)
 smpl read suspect.wav | smpl qc | smpl spectrogram | smpl view
 
+# Batch-gate generated one-shots in one call: attack_time_s + late_energy_share per file
+# (+ Audiobox CE/CU/PC/PQ with --audiobox, needs `smpl-analysis[audiobox]`) as ONE JSON report
+smpl read take1.wav take2.wav take3.wav take4.wav | smpl qc --report --audiobox
+
 # Splice the Unix DSP world into the middle of a pipe
 smpl read x.wav | smpl as-wav | sox - -t wav - reverb 50 \
   | smpl from-wav --role x.wet --derives-from source | smpl describe
@@ -164,7 +168,7 @@ composes the pipe, resolves only what's needed, and reads back the report.
 | `loudness` | integrated LUFS, true-peak dBTP, short-term LUFS |
 | `spectral` | spectral-shape family (flatness/crest/spread/rolloff/contrast/slope) |
 | `chords` | chord-span markers (`{t, dur, label, sample}`) + key/tuning feature |
-| `qc` | clipping, phase/mono, DC, SNR, clicks/gaps, lossy-origin cutoff |
+| `qc` | clipping, phase/mono, DC, SNR, clicks/gaps, lossy-origin cutoff, one-shot shape (attack time, late-energy share); `--audiobox`, `--report` |
 | `spectrogram` | annotated mel / CQT / HPSS spectrograms + waveform (PNG) |
 | `convert` | format / sample-rate / bit-depth conversion (new frame, own hash) |
 | `gain` `normalize` `limit` | level management: dB gain (pure), LUFS-normalize (+ true-peak ceiling), true-peak limit |
