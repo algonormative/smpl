@@ -14,6 +14,9 @@ returning smplstream frame dicts:
   5. clicks / gaps            → `marker` frames at defect locations
   6. lossy-origin via cutoff  → `qc.lossy.spectral_cutoff_hz`, `qc.lossy.expected_nyquist_hz`,
                                  `qc.lossy.confidence` (average-FFT brickwall detector)
+  7. one-shot shape           → `qc.shape.attack_time_s`, `qc.shape.late_energy_share`
+                                 (is it a hit, or a sustained passage? thresholds live in
+                                 the consuming skill, not here)
 
 All measurement keys come from the registry (feature-keys.md, owner vault-1e9a). Heavy
 imports (numpy/scipy/soundfile) stay inside functions so cold pipe stages start fast.
@@ -24,7 +27,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 OP = "qc"
-OP_VERSION = "qc@1"
+OP_VERSION = "qc@2"  # @2: adds qc.shape.* one-shot shape metrics (stale @1 memo entries lack them)
 
 # A sample at or above this absolute true-peak (in dBTP) is flagged as clipping.
 _CLIP_DBTP_THRESHOLD = -0.1
@@ -49,6 +52,12 @@ _LOSSY_MIN_PLAUSIBLE_CUTOFF_HZ = 10000.0
 #      roll-off is gentle (a few dB/third-octave) and gentle in the same way either side of
 #      wherever you look. Confidence ramps with that excess and a cliff must clear this.
 _LOSSY_SLOPE_DB = 24.0
+
+# One-shot shape metrics. `late_energy_share` counts signal energy at/after this boundary.
+LATE_ENERGY_BOUNDARY_S = 1.0
+# Amplitude-envelope smoothing for the attack peak: mean of |x| over this window, so a lone
+# sample spike does not stand in for the attack.
+_ENVELOPE_WINDOW_S = 0.001
 
 # Declared default table for the memo key (spec → *Parameter canonicalization*): omitted
 # params are filled from THIS table for THIS op_version before hashing. Only true *op*
@@ -164,6 +173,41 @@ def snr_db(samples, sr: int) -> Optional[float]:
         return 120.0  # noise-free floor (digital silence) → clean to the measurement ceiling
     snr = _dbfs(signal) - _dbfs(noise)
     return round(min(snr, 120.0), 2)
+
+
+def attack_time_s(samples, sr: int) -> Optional[float]:
+    """Seconds from file start to the peak of the amplitude envelope (None for silence).
+
+    Envelope = per-sample max |x| across channels, smoothed by a ~1 ms moving mean.
+    """
+    import numpy as np
+
+    if samples.size == 0:
+        return None
+    env = np.abs(samples).max(axis=1).astype(np.float64)
+    if not env.any():
+        return None
+    win = max(1, int(round(sr * _ENVELOPE_WINDOW_S)))
+    if win > 1:
+        env = np.convolve(env, np.ones(win) / win, mode="same")
+    return round(int(np.argmax(env)) / sr, 6)
+
+
+def late_energy_share(samples, sr: int) -> Optional[float]:
+    """Fraction of total signal energy (sum of squares, all channels) at/after
+    `LATE_ENERGY_BOUNDARY_S`. 0.0 for files no longer than the boundary; None for silence."""
+    import numpy as np
+
+    if samples.size == 0:
+        return None
+    x = samples.astype(np.float64)
+    total = float(np.sum(x * x))
+    if total <= 0.0:
+        return None
+    start = int(round(LATE_ENERGY_BOUNDARY_S * sr))
+    if start >= x.shape[0]:
+        return 0.0
+    return round(float(np.sum(x[start:] * x[start:])) / total, 6)
 
 
 def detect_clicks(samples, sr: int, *, max_points: int = 64) -> list[dict]:
@@ -484,6 +528,9 @@ def qc_audio_frame(audio_frame: dict, *, want_markers: bool = True,
         snr = snr_db(samples, sr)
         lossy = lossy_origin(samples, sr)
 
+        attack = attack_time_s(samples, sr)
+        late = late_energy_share(samples, sr)
+
         feat: dict[str, Any] = {
             # Clipping pass/fail ONLY. true-peak is computed internally to decide it, but the
             # dBTP *measurement* is owned solely by the loudness tier (`loudness.true_peak_dbtp`)
@@ -493,6 +540,8 @@ def qc_audio_frame(audio_frame: dict, *, want_markers: bool = True,
             "qc.dc_offset_dbfs": round(dc, 2) if dc != float("-inf") else None,
             "qc.snr_db": snr,
             **lossy,
+            "qc.shape.attack_time_s": attack,
+            "qc.shape.late_energy_share": late,
         }
         if corr is not None:
             feat["qc.phase.correlation"] = round(corr, 4)
