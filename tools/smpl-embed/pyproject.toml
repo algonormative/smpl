@@ -1,7 +1,7 @@
 [project]
 name = "smpl-embed"
 version = "0.1.0"
-description = "smpl embed / smpl index — audio embeddings (MERT/CLAP) + FAISS similarity index. Heavy ML (transformers) and faiss isolated in their OWN venv; the default install is light and degrades to a clean `unsupported` error frame when the heavy deps/weights are missing, so the two-tier model and the vector-frame contract work out of the box."
+description = "smpl embed / smpl index — audio + text embeddings (CLAP / MuQ-MuLan / MERT) + FAISS similarity index. Heavy ML (transformers) and faiss isolated in their OWN venv; the default install is light and degrades to a clean `unsupported` error frame when the heavy deps/weights are missing, so the two-tier model and the vector-frame contract work out of the box."
 requires-python = ">=3.10"
 dependencies = [
     "smplstream",
@@ -21,6 +21,11 @@ smpl-embed = "smpl_embed.cli:main"
 # Default install pulls NEITHER, so `smpl embed`/`smpl index` run light and emit a clean
 # `unsupported` error frame (+ a stderr install hint) until the user opts in.
 torch = ["torch>=2.2", "transformers>=4.40", "torchaudio>=2.2"]
+# MuQ-MuLan (OpenMuQ/MuQ-MuLan-large) via the `muq` package (einops, nnAudio, x_clip).
+# muq 0.1.0 drives Wav2Vec2Conformer with an EasyDict config, which transformers 5 rejects
+# (`'EasyDict' object has no attribute '_attn_implementation'`), hence the <5 pin. CLAP runs
+# on either major, so a venv with both extras resolves to transformers 4.x.
+muq = ["torch>=2.2", "torchaudio>=2.2", "transformers>=4.40,<5", "muq>=0.1.0"]
 faiss = ["faiss-cpu>=1.7"]
 
 [build-system]

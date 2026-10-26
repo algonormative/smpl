@@ -107,6 +107,47 @@ adding a row is additive and non-breaking).
 | `space.mono_collapse_penalty_db` | space (unit-suffixed) | dB | scalar | vault-1fxy |
 | `spectrum.oct6.<hz>` | octave-spectrum | dB (rel. total in-band power, ≤ 0) | scalar per 1/6-octave bin | vault-22oy |
 | `spectrum.band.<name>` | octave-spectrum | dB (rel. total in-band power) | scalar per standardized band | vault-22oy |
+| `conform.length_s` / `conform.length_intended_s` | conform (unit-suffixed) | s | scalar | vault-16dd.2 |
+| `conform.length_delta_ms` | conform | ms | scalar | vault-16dd.2 |
+| `conform.timing_median_ms` / `conform.timing_p90_ms` | conform | ms (abs. hit error vs intent) | scalar | vault-16dd.2 |
+| `conform.timing_mean_ms` | conform | ms (signed, + late) | scalar | vault-16dd.2 |
+| `conform.timing_n` / `conform.timing_intended_n` | conform | count (measured / intended hits) | scalar | vault-16dd.2 |
+| `conform.pc_in_set_share` | conform | 0–1 (chroma share inside the intended set) | scalar | vault-16dd.2 |
+| `conform.pc_fit_margin` | conform | 0–1 (in-set minus best other rotation) | scalar | vault-16dd.2 |
+| `conform.pc_best_rotation` | conform | semitones | scalar | vault-16dd.2 |
+| `conform.pc_concentration` | conform | 0–1 (1 − normalized chroma entropy; 0 = flat) | scalar | vault-16dd.2 |
+| `conform.pc_shares` / `conform.pc_offset_flagged` | conform | 0–1 per pitch class | map | vault-16dd.2 |
+| `conform.pc_outside_allowed` | conform | pitch-class names | list | vault-16dd.2 |
+| `conform.lufs` / `conform.lufs_intended` / `conform.lufs_delta` | conform | LUFS / LU | scalar | vault-16dd.2 |
+| `conform.true_peak_dbtp` / `conform.true_peak_intended_dbtp` | conform | dBTP | scalar | vault-16dd.2 |
+| `conform.true_peak_delta_db` | conform | dB | scalar | vault-16dd.2 |
+| `conform.over_tol` | conform | check names over their flag (length, timing, pitch, allowed) | list | vault-16dd.2 |
+| `rhythm.syncopation_lhl` | Essentia | Longuet-Higgins/Lee weight units (mean per bar) | scalar | vault-16dd.7 |
+| `rhythm.syncopation_norm` | Essentia | 0–1 (LHL ÷ the grid's maximum, mean per bar) | scalar | vault-16dd.7 |
+| `rhythm.microtiming_abs_ms` | Essentia | ms (mean abs. offset from the straight grid) | scalar | vault-16dd.7 |
+| `rhythm.microtiming_mean_ms` | Essentia | ms (signed; − pushed, + dragged) | scalar | vault-16dd.7 |
+| `rhythm.microtiming_sd_ms` | Essentia | ms (mean of per-step sd across bars) | scalar | vault-16dd.7 |
+| `rhythm.accent_range_db` | Essentia | dB (loudest to quietest step mean) | scalar | vault-16dd.7 |
+| `rhythm.groove_ref_delta_ms` | Essentia | ms (mean abs. per-step delta vs `--ref`) | scalar | vault-16dd.7 |
+| `clash.erb_overlap` | clash | 0–1 (ERB cells both layers occupy ÷ either) | scalar | vault-16dd.4 |
+| `clash.sub_collision` | clash | 0–1 (smaller sub-energy share, both-active frames) | scalar | vault-16dd.4 |
+| `clash.sub_share_a` / `clash.sub_share_b` | clash | 0–1 | scalar | vault-16dd.4 |
+| `clash.pc_clash_a` / `clash.pc_clash_b` | clash | 0–1 (share of one layer's pitch-class mass the other lacks) | scalar | vault-16dd.4 |
+| `clash.dissonance` | clash | unitless (Sethares, ~0–0.25) | scalar (None if never both active) | vault-16dd.4 |
+| `clash.seam_jump` | clash | amplitude (full scale = 1) | scalar | vault-16dd.4 |
+| `clash.seam_jump_ratio` / `clash.seam_deriv_ratio` / `clash.seam_flux_ratio` | clash | ratio to the clip's own reference | scalar | vault-16dd.4 |
+| `clash.seam_rms_jump_db` / `clash.seam_rms_excess_db` | clash (unit-suffixed) | dB | scalar | vault-16dd.4 |
+| `clash.seam_flagged` | clash | bool | scalar | vault-16dd.4 |
+| `cohesion.centroid_dist_cos` | cohesion | cosine distance | per item | vault-16dd.5 |
+| `cohesion.outlier_z` | cohesion | modified z (MAD) | per item | vault-16dd.5 |
+| `cohesion.outlier` | cohesion | bool (z over flag, default 3.5) | per item | vault-16dd.5 |
+| `cohesion.pairwise_dist_cos_mean` | cohesion | cosine distance | pack | vault-16dd.5 |
+| `cohesion.kad` / `cohesion.kad_bandwidth` | cohesion | 100·MMD² / euclidean (median ref pair) | pack vs ref | vault-16dd.5 |
+| `coverage.family` | coverage | label | per item | vault-16dd.5 |
+| `coverage.score_cos` / `coverage.margin_cos` | coverage | cosine | per item | vault-16dd.5 |
+| `coverage.families` | coverage | count vs quota per family | map | vault-16dd.5 |
+| `probe.score_cos` / `probe.z` | probe | axis projection / z within the set | per item | vault-16dd.5 |
+| `crosscheck.supported_count` / `.contradicted_count` / `.unverifiable_count` | crosscheck | count | scalar | vault-16dd.6 |
 
 ## Standardized band edges (vault-3tuy)
 

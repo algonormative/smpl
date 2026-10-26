@@ -1,0 +1,745 @@
+{
+  "model": "gemini-3.8-flash",
+  "date": "2026-10-26",
+  "n_cases": 47,
+  "calls": 59,
+  "total_cost_usd": 0.1095,
+  "routed_questions_skipped": true,
+  "questions": {
+    "tempo_bpm": {
+      "kind": "clip",
+      "route": null,
+      "n": 5,
+      "hits": 2,
+      "hit_rate": 0.4,
+      "chance": null,
+      "cost_usd": 0.01237,
+      "calls": 5,
+      "mean_latency_s": 7.13,
+      "octave_or_exact_rate": 0.4
+    },
+    "swing_feel": {
+      "kind": "clip",
+      "route": null,
+      "n": 6,
+      "hits": 1,
+      "hit_rate": 0.167,
+      "chance": 0.5,
+      "cost_usd": 0.02452,
+      "calls": 6,
+      "mean_latency_s": 12.39
+    },
+    "timing_drift": {
+      "kind": "clip",
+      "route": null,
+      "n": 6,
+      "hits": 3,
+      "hit_rate": 0.5,
+      "chance": 0.5,
+      "cost_usd": 0.01063,
+      "calls": 6,
+      "mean_latency_s": 5.26,
+      "timestamp_hit_rate": 0.0
+    },
+    "detune": {
+      "kind": "clip",
+      "route": null,
+      "n": 6,
+      "hits": 2,
+      "hit_rate": 0.333,
+      "chance": 0.5,
+      "cost_usd": 0.01031,
+      "calls": 6,
+      "mean_latency_s": 6.22,
+      "mean_abs_err_cents": 24.0
+    },
+    "clipping": {
+      "kind": "clip",
+      "route": null,
+      "n": 6,
+      "hits": 3,
+      "hit_rate": 0.5,
+      "chance": 0.5,
+      "cost_usd": 0.00561,
+      "calls": 6,
+      "mean_latency_s": 4.22
+    },
+    "defect_location": {
+      "kind": "clip",
+      "route": null,
+      "n": 6,
+      "hits": 3,
+      "hit_rate": 0.5,
+      "chance": 0.5,
+      "cost_usd": 0.00817,
+      "calls": 6,
+      "mean_latency_s": 4.96,
+      "timestamp_hit_rate": 0.0
+    },
+    "ab_louder": {
+      "kind": "ab",
+      "route": null,
+      "n": 4,
+      "hits": 3,
+      "hit_rate": 0.75,
+      "chance": 0.5,
+      "cost_usd": 0.00786,
+      "calls": 8,
+      "mean_latency_s": 7.24,
+      "order_agreement": 1.0,
+      "first_slot_share": 0.5
+    },
+    "ab_swingier": {
+      "kind": "ab",
+      "route": null,
+      "n": 4,
+      "hits": 0,
+      "hit_rate": 0.0,
+      "chance": 0.5,
+      "cost_usd": 0.02076,
+      "calls": 8,
+      "mean_latency_s": 15.77,
+      "order_agreement": 0.5,
+      "first_slot_share": 0.25
+    },
+    "ab_tight_low_end": {
+      "kind": "ab",
+      "route": "ear",
+      "n": 4,
+      "hits": 2,
+      "hit_rate": 0.5,
+      "chance": 0.5,
+      "cost_usd": 0.00929,
+      "calls": 8,
+      "mean_latency_s": 9.89,
+      "order_agreement": 0.75,
+      "first_slot_share": 0.625
+    }
+  },
+  "price_source": "ai.google.dev/gemini-api/docs/pricing, read 2026-10-26 via a page summariser",
+  "estimate": {
+    "model": "gemini-3.8-flash",
+    "calls": 59,
+    "audio_tokens": 19882,
+    "text_tokens": 10325,
+    "output_tokens_assumed": 56050,
+    "think_tokens_per_call_assumed": 800,
+    "cost_usd": 0.2328,
+    "cost_usd_without_thinking": 0.0558
+  },
+  "cases": [
+    {
+      "id": "tempo-84",
+      "question_id": "tempo_bpm",
+      "truth": {
+        "answer": 84.0,
+        "bpm": 84.0
+      },
+      "answer": 88.0,
+      "confidence": "normal",
+      "hit": false,
+      "timestamps": [],
+      "octave_hit": false,
+      "rel_err": 0.0476
+    },
+    {
+      "id": "tempo-100",
+      "question_id": "tempo_bpm",
+      "truth": {
+        "answer": 100.0,
+        "bpm": 100.0
+      },
+      "answer": 100.0,
+      "confidence": "normal",
+      "hit": true,
+      "timestamps": [],
+      "octave_hit": false,
+      "rel_err": 0.0
+    },
+    {
+      "id": "tempo-118",
+      "question_id": "tempo_bpm",
+      "truth": {
+        "answer": 118.0,
+        "bpm": 118.0
+      },
+      "answer": 111.0,
+      "confidence": "normal",
+      "hit": false,
+      "timestamps": [],
+      "octave_hit": false,
+      "rel_err": 0.0593
+    },
+    {
+      "id": "tempo-128",
+      "question_id": "tempo_bpm",
+      "truth": {
+        "answer": 128.0,
+        "bpm": 128.0
+      },
+      "answer": 125.0,
+      "confidence": "normal",
+      "hit": true,
+      "timestamps": [],
+      "octave_hit": false,
+      "rel_err": 0.0234
+    },
+    {
+      "id": "tempo-150",
+      "question_id": "tempo_bpm",
+      "truth": {
+        "answer": 150.0,
+        "bpm": 150.0
+      },
+      "answer": 128.0,
+      "confidence": "normal",
+      "hit": false,
+      "timestamps": [],
+      "octave_hit": false,
+      "rel_err": 0.1467
+    },
+    {
+      "id": "swing-straight-110",
+      "question_id": "swing_feel",
+      "truth": {
+        "answer": "straight",
+        "bpm": 110.0
+      },
+      "answer": "swung",
+      "confidence": "normal",
+      "hit": false,
+      "timestamps": []
+    },
+    {
+      "id": "swing-swung-110",
+      "question_id": "swing_feel",
+      "truth": {
+        "answer": "swung",
+        "bpm": 110.0
+      },
+      "answer": "straight",
+      "confidence": "normal",
+      "hit": false,
+      "timestamps": []
+    },
+    {
+      "id": "swing-straight-124",
+      "question_id": "swing_feel",
+      "truth": {
+        "answer": "straight",
+        "bpm": 124.0
+      },
+      "answer": "swung",
+      "confidence": "normal",
+      "hit": false,
+      "timestamps": []
+    },
+    {
+      "id": "swing-swung-124",
+      "question_id": "swing_feel",
+      "truth": {
+        "answer": "swung",
+        "bpm": 124.0
+      },
+      "answer": "swung",
+      "confidence": "normal",
+      "hit": true,
+      "timestamps": [
+        0.0,
+        7.5
+      ]
+    },
+    {
+      "id": "swing-straight-138",
+      "question_id": "swing_feel",
+      "truth": {
+        "answer": "straight",
+        "bpm": 138.0
+      },
+      "answer": "swung",
+      "confidence": "normal",
+      "hit": false,
+      "timestamps": [
+        0.0,
+        7.0
+      ]
+    },
+    {
+      "id": "swing-swung-138",
+      "question_id": "swing_feel",
+      "truth": {
+        "answer": "swung",
+        "bpm": 138.0
+      },
+      "answer": "straight",
+      "confidence": "normal",
+      "hit": false,
+      "timestamps": []
+    },
+    {
+      "id": "timing-aligned-0",
+      "question_id": "timing_drift",
+      "truth": {
+        "answer": false,
+        "t": null,
+        "bpm": 120.0
+      },
+      "answer": false,
+      "confidence": "normal",
+      "hit": true,
+      "timestamps": []
+    },
+    {
+      "id": "timing-late-0",
+      "question_id": "timing_drift",
+      "truth": {
+        "answer": true,
+        "t": 3.52,
+        "bpm": 120.0
+      },
+      "answer": false,
+      "confidence": "normal",
+      "hit": false,
+      "timestamps": [],
+      "timestamp_hit": false
+    },
+    {
+      "id": "timing-aligned-1",
+      "question_id": "timing_drift",
+      "truth": {
+        "answer": false,
+        "t": null,
+        "bpm": 128.0
+      },
+      "answer": false,
+      "confidence": "normal",
+      "hit": true,
+      "timestamps": []
+    },
+    {
+      "id": "timing-late-1",
+      "question_id": "timing_drift",
+      "truth": {
+        "answer": true,
+        "t": 4.2387,
+        "bpm": 128.0
+      },
+      "answer": false,
+      "confidence": "normal",
+      "hit": false,
+      "timestamps": [],
+      "timestamp_hit": false
+    },
+    {
+      "id": "timing-aligned-2",
+      "question_id": "timing_drift",
+      "truth": {
+        "answer": false,
+        "t": null,
+        "bpm": 112.0
+      },
+      "answer": false,
+      "confidence": "normal",
+      "hit": true,
+      "timestamps": []
+    },
+    {
+      "id": "timing-late-2",
+      "question_id": "timing_drift",
+      "truth": {
+        "answer": true,
+        "t": 8.0557,
+        "bpm": 112.0
+      },
+      "answer": false,
+      "confidence": "normal",
+      "hit": false,
+      "timestamps": [],
+      "timestamp_hit": false
+    },
+    {
+      "id": "detune-0-+0c",
+      "question_id": "detune",
+      "truth": {
+        "answer": 0.0
+      },
+      "answer": null,
+      "confidence": "normal",
+      "hit": false,
+      "timestamps": []
+    },
+    {
+      "id": "detune-1-+0c",
+      "question_id": "detune",
+      "truth": {
+        "answer": 0.0
+      },
+      "answer": 0.0,
+      "confidence": "normal",
+      "hit": true,
+      "timestamps": [],
+      "abs_err_cents": 0.0
+    },
+    {
+      "id": "detune-2-+0c",
+      "question_id": "detune",
+      "truth": {
+        "answer": 0.0
+      },
+      "answer": 0.0,
+      "confidence": "normal",
+      "hit": true,
+      "timestamps": [],
+      "abs_err_cents": 0.0
+    },
+    {
+      "id": "detune-3-+40c",
+      "question_id": "detune",
+      "truth": {
+        "answer": 40.0
+      },
+      "answer": 0.0,
+      "confidence": "normal",
+      "hit": false,
+      "timestamps": [],
+      "abs_err_cents": 40.0
+    },
+    {
+      "id": "detune-4--35c",
+      "question_id": "detune",
+      "truth": {
+        "answer": -35.0
+      },
+      "answer": 0.0,
+      "confidence": "normal",
+      "hit": false,
+      "timestamps": [],
+      "abs_err_cents": 35.0
+    },
+    {
+      "id": "detune-5-+45c",
+      "question_id": "detune",
+      "truth": {
+        "answer": 45.0
+      },
+      "answer": 0.0,
+      "confidence": "normal",
+      "hit": false,
+      "timestamps": [],
+      "abs_err_cents": 45.0
+    },
+    {
+      "id": "clip-clean-0",
+      "question_id": "clipping",
+      "truth": {
+        "answer": false
+      },
+      "answer": false,
+      "confidence": "normal",
+      "hit": true,
+      "timestamps": []
+    },
+    {
+      "id": "clip-hot-0",
+      "question_id": "clipping",
+      "truth": {
+        "answer": true
+      },
+      "answer": false,
+      "confidence": "normal",
+      "hit": false,
+      "timestamps": []
+    },
+    {
+      "id": "clip-clean-1",
+      "question_id": "clipping",
+      "truth": {
+        "answer": false
+      },
+      "answer": false,
+      "confidence": "normal",
+      "hit": true,
+      "timestamps": []
+    },
+    {
+      "id": "clip-hot-1",
+      "question_id": "clipping",
+      "truth": {
+        "answer": true
+      },
+      "answer": false,
+      "confidence": "normal",
+      "hit": false,
+      "timestamps": []
+    },
+    {
+      "id": "clip-clean-2",
+      "question_id": "clipping",
+      "truth": {
+        "answer": false
+      },
+      "answer": false,
+      "confidence": "normal",
+      "hit": true,
+      "timestamps": []
+    },
+    {
+      "id": "clip-hot-2",
+      "question_id": "clipping",
+      "truth": {
+        "answer": true
+      },
+      "answer": false,
+      "confidence": "normal",
+      "hit": false,
+      "timestamps": []
+    },
+    {
+      "id": "defect-clean-0",
+      "question_id": "defect_location",
+      "truth": {
+        "answer": false,
+        "t": null
+      },
+      "answer": false,
+      "confidence": "normal",
+      "hit": true,
+      "timestamps": []
+    },
+    {
+      "id": "defect-click-0",
+      "question_id": "defect_location",
+      "truth": {
+        "answer": true,
+        "t": 1.3
+      },
+      "answer": false,
+      "confidence": "normal",
+      "hit": false,
+      "timestamps": [],
+      "timestamp_hit": false
+    },
+    {
+      "id": "defect-clean-1",
+      "question_id": "defect_location",
+      "truth": {
+        "answer": false,
+        "t": null
+      },
+      "answer": false,
+      "confidence": "normal",
+      "hit": true,
+      "timestamps": []
+    },
+    {
+      "id": "defect-click-1",
+      "question_id": "defect_location",
+      "truth": {
+        "answer": true,
+        "t": 2.4
+      },
+      "answer": false,
+      "confidence": "normal",
+      "hit": false,
+      "timestamps": [],
+      "timestamp_hit": false
+    },
+    {
+      "id": "defect-clean-2",
+      "question_id": "defect_location",
+      "truth": {
+        "answer": false,
+        "t": null
+      },
+      "answer": false,
+      "confidence": "normal",
+      "hit": true,
+      "timestamps": []
+    },
+    {
+      "id": "defect-click-2",
+      "question_id": "defect_location",
+      "truth": {
+        "answer": true,
+        "t": 3.1
+      },
+      "answer": false,
+      "confidence": "normal",
+      "hit": false,
+      "timestamps": [],
+      "timestamp_hit": false
+    },
+    {
+      "id": "ab-louder-0",
+      "question_id": "ab_louder",
+      "truth": {
+        "answer": "A"
+      },
+      "answer": "B",
+      "confidence": "normal",
+      "hit": false,
+      "timestamps": [],
+      "order_agree": true,
+      "first_slot_picks": 1,
+      "slot_picks_n": 2
+    },
+    {
+      "id": "ab-louder-1",
+      "question_id": "ab_louder",
+      "truth": {
+        "answer": "B"
+      },
+      "answer": "B",
+      "confidence": "normal",
+      "hit": true,
+      "timestamps": [],
+      "order_agree": true,
+      "first_slot_picks": 1,
+      "slot_picks_n": 2
+    },
+    {
+      "id": "ab-louder-2",
+      "question_id": "ab_louder",
+      "truth": {
+        "answer": "A"
+      },
+      "answer": "A",
+      "confidence": "normal",
+      "hit": true,
+      "timestamps": [],
+      "order_agree": true,
+      "first_slot_picks": 1,
+      "slot_picks_n": 2
+    },
+    {
+      "id": "ab-louder-3",
+      "question_id": "ab_louder",
+      "truth": {
+        "answer": "B"
+      },
+      "answer": "B",
+      "confidence": "normal",
+      "hit": true,
+      "timestamps": [],
+      "order_agree": true,
+      "first_slot_picks": 1,
+      "slot_picks_n": 2
+    },
+    {
+      "id": "ab-swingier-0",
+      "question_id": "ab_swingier",
+      "truth": {
+        "answer": "A",
+        "bpm": 104.0
+      },
+      "answer": null,
+      "confidence": "low",
+      "hit": false,
+      "timestamps": [],
+      "order_agree": false,
+      "first_slot_picks": 0,
+      "slot_picks_n": 2
+    },
+    {
+      "id": "ab-swingier-1",
+      "question_id": "ab_swingier",
+      "truth": {
+        "answer": "B",
+        "bpm": 116.0
+      },
+      "answer": null,
+      "confidence": "low",
+      "hit": false,
+      "timestamps": [],
+      "order_agree": false,
+      "first_slot_picks": 0,
+      "slot_picks_n": 2
+    },
+    {
+      "id": "ab-swingier-2",
+      "question_id": "ab_swingier",
+      "truth": {
+        "answer": "A",
+        "bpm": 126.0
+      },
+      "answer": "B",
+      "confidence": "normal",
+      "hit": false,
+      "timestamps": [],
+      "order_agree": true,
+      "first_slot_picks": 1,
+      "slot_picks_n": 2
+    },
+    {
+      "id": "ab-swingier-3",
+      "question_id": "ab_swingier",
+      "truth": {
+        "answer": "B",
+        "bpm": 136.0
+      },
+      "answer": "A",
+      "confidence": "normal",
+      "hit": false,
+      "timestamps": [],
+      "order_agree": true,
+      "first_slot_picks": 1,
+      "slot_picks_n": 2
+    },
+    {
+      "id": "ab-lowend-0",
+      "question_id": "ab_tight_low_end",
+      "truth": {
+        "answer": "A"
+      },
+      "answer": "B",
+      "confidence": "normal",
+      "hit": false,
+      "timestamps": [],
+      "order_agree": true,
+      "first_slot_picks": 1,
+      "slot_picks_n": 2
+    },
+    {
+      "id": "ab-lowend-1",
+      "question_id": "ab_tight_low_end",
+      "truth": {
+        "answer": "B"
+      },
+      "answer": "B",
+      "confidence": "normal",
+      "hit": true,
+      "timestamps": [],
+      "order_agree": true,
+      "first_slot_picks": 1,
+      "slot_picks_n": 2
+    },
+    {
+      "id": "ab-lowend-2",
+      "question_id": "ab_tight_low_end",
+      "truth": {
+        "answer": "A"
+      },
+      "answer": "A",
+      "confidence": "normal",
+      "hit": true,
+      "timestamps": [],
+      "order_agree": true,
+      "first_slot_picks": 1,
+      "slot_picks_n": 2
+    },
+    {
+      "id": "ab-lowend-3",
+      "question_id": "ab_tight_low_end",
+      "truth": {
+        "answer": "B"
+      },
+      "answer": null,
+      "confidence": "low",
+      "hit": false,
+      "timestamps": [],
+      "order_agree": false,
+      "first_slot_picks": 2,
+      "slot_picks_n": 2
+    }
+  ]
+}

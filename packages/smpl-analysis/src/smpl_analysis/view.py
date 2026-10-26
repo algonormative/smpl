@@ -170,10 +170,13 @@ def build_report(frames: list[dict]) -> str:
         kinds[f.get("kind", "?")] = kinds.get(f.get("kind", "?"), 0) + 1
 
     audios = [f for f in frames if f.get("kind") == "audio"]
-    features = [f for f in frames if f.get("kind") == "feature"]
+    # `sheet` feature frames carry a whole sidecar document (per-bar rows), not registry keys:
+    # they are listed under "Listening sheets" with their file paths, not flattened here.
+    features = [f for f in frames if f.get("kind") == "feature" and f.get("op") != "sheet"]
     markers = [f for f in frames if f.get("kind") == "marker"]
     images = [f for f in frames if f.get("kind") == "image"]
-    texts = [f for f in frames if f.get("kind") == "text"]
+    texts = [f for f in frames if f.get("kind") == "text" and f.get("op") != "sheet"]
+    sheets = [f for f in frames if f.get("kind") == "image" and f.get("op") == "sheet"]
     errors = [f for f in frames if f.get("kind") == "error"]
 
     lines.append("# smpl analysis report")
@@ -241,6 +244,23 @@ def build_report(frames: list[dict]) -> str:
         if len(images) > _IMAGE_PREVIEW:
             lines.append("")
             lines.append(f"_… and {len(images) - _IMAGE_PREVIEW} more image frame(s)._")
+        lines.append("")
+
+    # --- Listening sheets: PNG + the sidecar files a reader should cite instead of pixels. ---
+    if sheets:
+        lines.append(f"## Listening sheets ({len(sheets)})")
+        lines.append("")
+        lines.append("Cite the sidecar numbers (per-bar rows), not readings off the PNG.")
+        lines.append("")
+        lines.append("| role | png | sidecar json | sidecar markdown |")
+        lines.append("|---|---|---|---|")
+        for img in sheets:
+            p = img.get("params") or {}
+            lines.append(
+                f"| {img.get('role', 'sheet')} | `{_resolve_image_path(img.get('hash'))}` "
+                f"| `{_resolve_image_path(p.get('json_hash'))}` "
+                f"| `{_resolve_image_path(p.get('markdown_hash'))}` |"
+            )
         lines.append("")
 
     # --- Audio + text inventory (self-describing tail). ---

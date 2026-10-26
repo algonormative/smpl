@@ -153,6 +153,21 @@ feature tables with units, `marker` tracks tied to musical time, and **actual sp
 images** an LLM can open and describe. The deterministic tier does the *measuring*; the
 model's job is to *interpret*. (*If it doesn't need reasoning, it shouldn't call a model.*)
 
+Three habits make a text-and-image model a better listener than it has any right to be:
+
+- **Compare to intent, not to a guess.** A generator knows what it meant; a detector only
+  guesses. `conform`, `sheet`, `clash` and `groove-feel` read the clip's intent sidecar
+  ([spec.md → Intent sidecars](spec.md)) and report measured / intended / delta.
+- **Read the sidecar, not the pixels.** `smpl sheet` draws the whole clip on one page, and its
+  per-bar JSON holds every number behind the picture; quote those. `groove-feel` turns a groove
+  into a step grid (`kick b1 |X... .X.. ..X. ...X|`) a model reasons over far better than audio.
+- **Ask the human the one question they can answer.** A person reliably says whether a sound
+  matches a stated description. Listening pages (`smplvst listen`) put each clip next to the
+  claim it should match with one-tap matches? / keep / cut; `smplvst ledger pull` turns the
+  answers into human `verdict` frames that `smpl verdict-backtest` scores the automatic gate
+  against. An audio LLM (`smpl ask`) is a second ear only: `smpl crosscheck` referees its
+  claims against measurements, and what it can't refute goes on the listening page.
+
 The companion [`smpl-dissect`](skills/smpl-dissect/SKILL.md) skill drives these pipes
 for you: give it a sample and an intent ("isolate the bass and describe its texture") and it
 composes the pipe, resolves only what's needed, and reads back the report.
@@ -176,8 +191,14 @@ composes the pipe, resolves only what's needed, and reads back the report.
 | `filter` `eq` `env` `fx` `slice` `select` | the edit filters + stream selection |
 | `automate` `variants` `stereoize` `widen` `spectral-match` | parameter motion over time; N baked closed→open filter variants of one source; mono→wide; M-S width; EQ toward a reference |
 | `pattern` | step-grid drum-loop DSL → smplmix session (velocity / pitch / swing / nudge) |
+| `conform` | measured vs intended (from the clip's intent sidecar): length, per-hit timing (signed), pitch classes (rotation fit), LUFS / true peak; markers at timing misses |
+| `sheet` | full-length annotated listening sheet PNG (loudness, CQT + bar grid, onsets vs intended hits, chroma vs intended set, six bands, stereo correlation, self-similarity for clips ≥ 30 s) + per-bar JSON/markdown sidecar; `--ab` loudness-matched A/B (louder one turned down) with a B−A difference panel |
+| `clash` | layer interaction across the selected audio frames: per-pair ERB-band overlap, sub collision, pitch-class clash + Sethares dissonance (markers at the worst spans); `--seam` / one input checks the loop wrap |
+| `groove-feel` | syncopation (Longuet-Higgins/Lee), per-step microtiming mean/sd, accent profile, `--ref` deltas; hits as a compact step-grid + hit-list text an LLM can reason over |
+| `cohesion` `coverage` `probe` | pack metrics over `embed` vectors: centroid distance, robust-z outliers, pairwise spread, KAD vs a `--ref` pack; items per brief family against quotas; scores on a contrastive text axis (positive vs negative prompt) |
+| `crosscheck` | marks audio-LLM `claim` frames supported / contradicted / unverifiable against smpl's own frames; stereo and fidelity questions come back `route: smpl` |
 | `view` | the multimodal LLM/human report |
-| `gen` · `cloud` · `transcribe` · `stems` · `embed` · `synth` | PATH-discovered heavy tools (own venvs) |
+| `gen` · `cloud` · `transcribe` · `stems` · `embed` · `synth` · `ask` | PATH-discovered heavy tools (own venvs); `ask` puts one fixed-bank question about a clip or A/B pair (both orders) to an audio LLM and emits `claim` frames, `smpl-ask calibrate` scores it on known-answer clips |
 
 ## Install the agent skills
 

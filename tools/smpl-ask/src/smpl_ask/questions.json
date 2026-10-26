@@ -1,0 +1,83 @@
+{
+  "_doc": "The fixed question bank for `smpl ask`. One narrow question per id; no measurement ever goes into a prompt. `kind`: clip (one audio frame) or ab (two, always asked in both orders). `answer`: number {min,max} | bool | enum {values}. `timestamps`: none | optional | required (required = must be non-empty when the answer is true). `route`: null (the model may be asked) | smpl (stereo / fidelity: the model hears a mono 16 kHz downmix, so smpl answers it; `ask` refuses without --allow-routed) | ear (asked, but no objective smpl measure exists, so crosscheck leaves it for the listening page). `claim`: the human-readable rendering used in claim frames and ear-ledger questions. The ids MUST equal smpl_analysis.crosscheck.QUESTIONS (a test pins it).",
+  "questions": [
+    {
+      "id": "tempo_bpm", "kind": "clip", "route": null,
+      "prompt": "What is the tempo of this loop in beats per minute? Give your single best estimate as one number.",
+      "answer": {"type": "number", "min": 30, "max": 300}, "timestamps": "none",
+      "claim": "The tempo is about {answer} BPM."
+    },
+    {
+      "id": "swing_feel", "kind": "clip", "route": null,
+      "prompt": "Listen to the fast hits (sixteenth notes). Are they evenly spaced (straight), or do the off-beat hits lag behind to give a shuffled, swung feel?",
+      "answer": {"type": "enum", "values": ["straight", "swung", "unsure"]}, "timestamps": "none",
+      "claim": "The groove feels {answer}."
+    },
+    {
+      "id": "timing_drift", "kind": "clip", "route": null,
+      "prompt": "Does any single hit land audibly early or late against the steady pulse of the loop (a flam, a drag, a loose hit)? If yes, list the time in seconds of each such hit.",
+      "answer": {"type": "bool"}, "timestamps": "required",
+      "claim": {"true": "A hit lands early or late against the pulse.", "false": "Every hit sits on the pulse."}
+    },
+    {
+      "id": "detune", "kind": "clip", "route": null,
+      "prompt": "Is the pitched material in tune with standard concert pitch (A = 440 Hz)? Answer with how far off it is in cents (100 cents = one semitone): 0 if in tune, positive if sharp, negative if flat.",
+      "answer": {"type": "number", "min": -100, "max": 100}, "timestamps": "none",
+      "claim": "The pitched material is {answer} cents off concert pitch (negative = flat)."
+    },
+    {
+      "id": "clipping", "kind": "clip", "route": null,
+      "prompt": "Is there audible digital clipping (flat-topped peaks, a harsh crackle or fizz on the loud hits)? If yes and you can tell where, list the times in seconds.",
+      "answer": {"type": "bool"}, "timestamps": "optional",
+      "claim": {"true": "There is audible clipping.", "false": "There is no audible clipping."}
+    },
+    {
+      "id": "defect_location", "kind": "clip", "route": null,
+      "prompt": "Is there a click, pop, dropout or glitch that is not part of the music? If yes, list the time in seconds of each one.",
+      "answer": {"type": "bool"}, "timestamps": "required",
+      "claim": {"true": "There is a click or glitch that is not part of the music.", "false": "There is no click or glitch."}
+    },
+    {
+      "id": "ab_louder", "kind": "ab", "route": null,
+      "prompt": "Which clip is louder overall, A or B? Answer \"same\" if you cannot hear a difference.",
+      "answer": {"type": "enum", "values": ["A", "B", "same", "unsure"]}, "timestamps": "none",
+      "claim": {"A": "A is louder than B.", "B": "B is louder than A.", "same": "A and B are equally loud."}
+    },
+    {
+      "id": "ab_swingier", "kind": "ab", "route": null,
+      "prompt": "Which clip has more swing (off-beat hits lagging behind the grid), A or B? Answer \"same\" if both feel alike.",
+      "answer": {"type": "enum", "values": ["A", "B", "same", "unsure"]}, "timestamps": "none",
+      "claim": {"A": "A swings more than B.", "B": "B swings more than A.", "same": "A and B swing equally."}
+    },
+    {
+      "id": "ab_tight_low_end", "kind": "ab", "route": "ear",
+      "prompt": "Which clip has the tighter low end (a shorter, cleaner bass or kick tail with less boom), A or B? Answer \"same\" if both feel alike.",
+      "answer": {"type": "enum", "values": ["A", "B", "same", "unsure"]}, "timestamps": "none",
+      "claim": {"A": "A has the tighter low end.", "B": "B has the tighter low end.", "same": "A and B have equally tight low ends."}
+    },
+    {
+      "id": "stereo_width", "kind": "clip", "route": "smpl", "smpl_op": "width",
+      "prompt": "How wide is the stereo image: mono, narrow or wide?",
+      "answer": {"type": "enum", "values": ["mono", "narrow", "wide", "unsure"]}, "timestamps": "none",
+      "claim": "The stereo image is {answer}."
+    },
+    {
+      "id": "phase_problem", "kind": "clip", "route": "smpl", "smpl_op": "qc",
+      "prompt": "Is there a phase problem (a hollow, thin or cancelling sound that would collapse in mono)?",
+      "answer": {"type": "bool"}, "timestamps": "none",
+      "claim": {"true": "There is a phase problem.", "false": "There is no phase problem."}
+    },
+    {
+      "id": "true_peak", "kind": "clip", "route": "smpl", "smpl_op": "loudness",
+      "prompt": "Estimate the true-peak level in dBTP.",
+      "answer": {"type": "number", "min": -60, "max": 12}, "timestamps": "none",
+      "claim": "The true peak is about {answer} dBTP."
+    },
+    {
+      "id": "lossy_cutoff", "kind": "clip", "route": "smpl", "smpl_op": "qc",
+      "prompt": "Above what frequency in Hz is there no content (a low-pass or lossy-codec cutoff)?",
+      "answer": {"type": "number", "min": 1000, "max": 48000}, "timestamps": "none",
+      "claim": "Content stops above about {answer} Hz."
+    }
+  ]
+}

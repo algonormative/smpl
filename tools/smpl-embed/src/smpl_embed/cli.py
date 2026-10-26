@@ -5,6 +5,7 @@ Surfaces TWO verbs via argv dispatch (like smpl-gen's `models` subcommand):
   smpl embed  [--model M] [--role R] [--strict]      filter: audio frames → vector frames
   smpl index  build <name> [--all]                   sink:   build FAISS index over vectors
   smpl index  query <name> [--k N] [--model M]        sink:   query nearest ids
+  smpl embed  text "prompt" ["prompt" …] [--model M]  source: text → text-embedding vectors
   smpl embed  models list | install <id> | update <id> | rm <id>
 
 Two-tier discipline: the heavy ML stack (torch + transformers) and faiss are lazy-imported
@@ -55,12 +56,16 @@ def _emit_unsupported(exc: "backends.UnsupportedError", *, op: str, of: str | No
     sys.stderr.write(f"smpl {op}: unsupported — install with: {exc.install_hint}\n")
 
 
-def _vector_frame_for(vec, *, model_id: str, op_version: str, of: str | None):
+def _vector_frame_for(
+    vec, *, model_id: str, spec: dict, op_version: str, of: str | None, text: str | None = None
+):
     """Build a `vector` frame from a 1-D float32 numpy vector.
 
     dim > 64 → store the binary `.npy` in CAS (`cas.put_blob(npy_bytes,'application/x-npy')`)
     and reference it by `hash`, NEVER pickle. dim <= 64 inlines as `data`. `meta` always
-    carries model + dim + dtype.
+    carries model + dim + dtype; `params` carries the model id, dim, backend and HF repo (and
+    the prompt for a text vector), and the role is ``ml.<backend>.embedding`` /
+    ``ml.<backend>.text-embedding``.
     """
     import numpy as np
 
@@ -70,7 +75,10 @@ def _vector_frame_for(vec, *, model_id: str, op_version: str, of: str | None):
     vec = np.ascontiguousarray(np.asarray(vec, dtype=np.float32)).reshape(-1)
     dim = int(vec.shape[0])
     dtype = "float32"
-    params = {"model": model_id}
+    params = {"model": model_id, "dim": dim, "backend": spec["backend"], "hf_repo": spec["hf_repo"]}
+    if text is not None:
+        params["text"] = text
+    role = backends.vector_role(spec, text=text is not None)
 
     if dim > VECTOR_INLINE_MAX_DIM:
         buf = io.BytesIO()
@@ -78,11 +86,11 @@ def _vector_frame_for(vec, *, model_id: str, op_version: str, of: str | None):
         h = cas.put_blob(buf.getvalue(), "application/x-npy")
         return F.vector_frame(
             model=model_id, dim=dim, dtype=dtype, hash=h, media="application/x-npy",
-            role="embedding", of=of, op="embed", op_version=op_version, params=params,
+            role=role, of=of, op="embed", op_version=op_version, params=params,
         )
     return F.vector_frame(
         model=model_id, dim=dim, dtype=dtype, data=[float(x) for x in vec.tolist()],
-        role="embedding", of=of, op="embed", op_version=op_version, params=params,
+        role=role, of=of, op="embed", op_version=op_version, params=params,
     )
 
 
@@ -125,7 +133,7 @@ def _embed(argv: list[str]) -> int:
     from smplstream import ndjson
 
     p = argparse.ArgumentParser(prog="smpl embed", description="embed audio frames → vectors")
-    p.add_argument("--model", help="embedding model (default: $SMPL_EMBED_MODEL or mert-v1-95m)")
+    p.add_argument("--model", help="embedding model (default: $SMPL_EMBED_MODEL or clap)")
     p.add_argument("--role", default=None, help="only embed audio frames with this role")
     args = p.parse_args(argv)
 
@@ -150,12 +158,18 @@ def _embed(argv: list[str]) -> int:
         and (args.role is None or f.get("role") == args.role)
     ]
 
+    import time
+
+    times: list[float] = []
     for f in targets:
         of = f.get("id")
         try:
             pcm, sr = _materialize_pcm(f)
+            t0 = time.perf_counter()
             vec = backends.embed(pcm, sr, model_id=model_id)
-            out.append(_vector_frame_for(vec, model_id=model_id, op_version=op_version, of=of))
+            times.append(time.perf_counter() - t0)
+            out.append(_vector_frame_for(
+                vec, model_id=model_id, spec=spec, op_version=op_version, of=of))
         except backends.UnsupportedError as exc:
             # One frame, one failure: emit a per-frame `unsupported` error and keep going.
             from smplstream import error_frame
@@ -163,6 +177,48 @@ def _embed(argv: list[str]) -> int:
             out.append(error_frame("unsupported", str(exc), op="embed", of=of))
             sys.stderr.write(f"smpl embed: unsupported — install with: {exc.install_hint}\n")
 
+    if times:
+        # The first call pays the model load; report it apart from the steady per-item cost.
+        steady = times[1:] or times
+        sys.stderr.write(
+            f"smpl embed: {model_id} {len(times)} item(s), first {times[0]:.2f} s (incl. load), "
+            f"then {sum(steady) / len(steady):.3f} s/item\n"
+        )
+    ndjson.write_frames(out)
+    sys.stdout.buffer.flush()
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# `smpl embed text` — text prompts → vectors in the model's joint audio-text space
+# ---------------------------------------------------------------------------
+
+
+def _text(argv: list[str]) -> int:
+    """Embed text prompts (CLAP / MuQ-MuLan text towers) → `ml.<backend>.text-embedding`
+    vector frames, one per prompt, with the prompt in ``params.text``. Inbound frames pass
+    through first, so `… | smpl embed text "a kick" | smpl probe …` keeps the audio vectors."""
+    import argparse
+
+    from smplstream import ndjson
+
+    p = argparse.ArgumentParser(prog="smpl embed text", description="embed text prompts → vectors")
+    p.add_argument("prompts", nargs="+", help="text prompt(s)")
+    p.add_argument("--model", help="model with a text tower (default: $SMPL_EMBED_MODEL or clap)")
+    args = p.parse_args(argv)
+
+    out: list[dict] = list(_read_stdin_frames())
+    try:
+        model_id, spec = backends.resolve_model(args.model)
+        vecs = backends.embed_text(args.prompts, model_id=model_id)
+    except backends.UnsupportedError as exc:
+        ndjson.write_frames(out)
+        _emit_unsupported(exc, op="embed")
+        return 0
+    op_version = backends.op_version(model_id, spec)
+    for prompt, vec in zip(args.prompts, vecs):
+        out.append(_vector_frame_for(
+            vec, model_id=model_id, spec=spec, op_version=op_version, of=None, text=prompt))
     ndjson.write_frames(out)
     sys.stdout.buffer.flush()
     return 0
@@ -313,6 +369,8 @@ def main(argv: list[str] | None = None) -> int:
         argv = argv[1:]
     if argv and argv[0] == "models":
         return _models(argv[1:])
+    if argv and argv[0] == "text":
+        return _text(argv[1:])
     return _embed(argv)
 
 
