@@ -83,9 +83,27 @@ smpl-ask calibrate --yes --out cal-gemini-3.8-flash.json   # live; on the mini, 
 
 ### Results
 
-Not yet run live. Record the table from `smpl-ask calibrate --yes` here (model, date, per-question hit rate vs
-chance, order agreement, cost). Then, as Nick answers the exported "matches?" questions on the listening page,
-add the ear-ledger hit rate beside it: the synthetic set measures whether the model hears an isolated
+**gemini-3.8-flash, 2026-10-26** (47 known-answer cases, 59 calls, $0.11 total, run on the mini;
+full report in [`calibration/cal-gemini-3.8-flash.json`](calibration/cal-gemini-3.8-flash.json)):
+
+| question | n | hit | chance | A/B order agreement | notes |
+|---|---|---|---|---|---|
+| tempo_bpm | 5 | 40% | — | — | exact or octave |
+| swing_feel | 6 | 17% | 50% | — | below chance |
+| timing_drift | 6 | 50% | 50% | — | timestamps right 0% |
+| detune | 6 | 33% | 50% | — | mean error 24 cents |
+| clipping | 6 | 50% | 50% | — | |
+| defect_location | 6 | 50% | 50% | — | timestamps right 0% |
+| ab_louder | 4 | 75% | 50% | 100% | the only question above chance |
+| ab_swingier | 4 | 0% | 50% | 50% | |
+| ab_tight_low_end | 4 | 50% | 50% | 75% | route: ear |
+
+**Reading.** On isolated, known differences this model is at or below chance on everything but
+gross loudness, and never placed a timestamp correctly. That matches the literature (MUSE,
+AudioCapBench) and settles the routing: do not spend `smpl ask` calls on timing, swing, pitch or
+defect questions; smpl measures those. Re-run the calibration when a new audio model ships
+(`smpl-ask calibrate --estimate` first), and add the ear-ledger hit rate beside it as Nick
+answers exported claims: the synthetic set measures whether the model hears an isolated
 difference, the ledger whether it can be trusted on a real mix.
 
 ## Ear-ledger export
