@@ -20,7 +20,8 @@ The normalized shape (every field optional; absent means "no intent stated")::
       "v": 1,
       "bpm": 120.0, "beats_per_bar": 4.0, "bars": 4, "grid_steps": 16, "swing": 0.0,
       "dur_s": 8.0,                        # bars x beats_per_bar x 60 / bpm, unless stated
-      "hits": [{"t": 0.0, "velocity": 1.0, "track": "kick"}],   # seconds from sample 0
+      "hits": [{"t": 0.0, "velocity": 1.0, "track": "kick", "bar": 1, "step": 1}],  # seconds from
+                                           # sample 0; bar/step (1-based) only when the source states them
       "pitch_classes": ["C", "D", "E"],    # sharps spelled "#"
       "key": "A minor",
       "lufs": -14.0, "true_peak_db": -1.0,
@@ -66,7 +67,7 @@ def recipe_hits(recipe: dict, bpm: float | None = None) -> list[dict]:
             b += swing * step_b if h["step"] % 2 == 0 else 0.0
             out.append({"t": round((b + h.get("nudge", 0.0)) * beat_s, 6),
                         "velocity": float(h.get("velocity", 1.0)),
-                        "track": track.get("name")})
+                        "track": track.get("name"), "bar": int(h["bar"]), "step": int(h["step"])})
     return sorted(out, key=lambda h: h["t"])
 
 
@@ -98,7 +99,9 @@ def normalize(doc: dict, source: str | None = None) -> dict:
         out["dur_s"] = round(out["bars"] * out["beats_per_bar"] * 60.0 / out["bpm"], 6)
     if isinstance(doc.get("hits"), list):
         out["hits"] = sorted(({"t": float(h["t"]), "velocity": float(h.get("velocity", 1.0)),
-                               "track": h.get("track")} for h in doc["hits"]), key=lambda h: h["t"])
+                               "track": h.get("track"),
+                               **{k: int(h[k]) for k in ("bar", "step") if h.get(k) is not None}}
+                              for h in doc["hits"]), key=lambda h: h["t"])
     elif recipe and "grid_steps" in recipe and recipe.get("tracks"):
         out["hits"] = recipe_hits(recipe, out.get("bpm"))
     if doc.get("pitch_classes"):

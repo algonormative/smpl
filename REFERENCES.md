@@ -31,3 +31,18 @@ rotation test for the intended pitch-class set.
   <https://doi.org/10.1109/ICME.2000.869637> — the self-similarity panel and the
   checkerboard-novelty section boundaries `smpl sheet` draws (segmentation reused from
   `smpl arc`).
+
+## groove-feel (vault-16dd.7)
+
+- **Longuet-Higgins, H. C. & Lee, C. S. (1984).** "The Rhythmic Interpretation of Monophonic
+  Music." *Music Perception* 1(4), 424-441. https://doi.org/10.2307/40285271
+  Metrical-weight model of syncopation: each step of the bar carries a weight set by its level
+  in the metrical hierarchy (0 at the downbeat, one lower per level); a note followed by a
+  silent step of higher weight, before the next note, is a syncopation worth the weight
+  difference. Used for `rhythm.syncopation_lhl` and the per-bar index in the `groove-feel`
+  text export.
+- **Fitch, W. T. & Rosenfeld, A. J. (2007).** "Perception and Production of Syncopated
+  Rhythms." *Music Perception* 25(1), 43-58. https://doi.org/10.1525/mp.2007.25.1.43
+  The pattern-level formalisation of the Longuet-Higgins/Lee measure used here (sum over the
+  notes of a looped bar; the largest silent step in each gap) and the model for normalising by
+  the maximum a pattern can score (`rhythm.syncopation_norm`).
