@@ -247,3 +247,10 @@ def test_real_groove_swing_verdicts(tmp_path, monkeypatch, swing, expect):
     by = {f["data"]["claim_id"]: f["data"] for f in cc.crosscheck(frames + [ok, ko]) if f.get("role") == "crosscheck"}
     assert by[ok["id"]]["status"] == "supported", by[ok["id"]]
     assert by[ko["id"]]["status"] == "contradicted", by[ko["id"]]
+
+
+def test_one_event_never_confirms_two_claims():
+    from smpl_analysis.crosscheck import _match_windows
+
+    assert _match_windows([1.0, 1.05], [1.02], 0.12) == [0, None]
+    assert _match_windows([1.0, 2.0], [2.01, 0.99], 0.12) == [1, 0]

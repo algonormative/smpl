@@ -42,3 +42,9 @@ def test_no_sidecar_means_no_intent_and_bad_pitch_raises(tmp_path):
     assert intent.for_audio_frame({"kind": "audio"}) is None
     with pytest.raises(ValueError):
         intent.pitch_class("H")
+
+
+def test_meter_is_never_assumed():
+    doc = intent.normalize({"bpm": 120, "bars": 4})
+    assert "beats_per_bar" not in doc and "dur_s" not in doc
+    assert intent.normalize({"bpm": 120, "bars": 4, "beats_per_bar": 5})["dur_s"] == 10.0

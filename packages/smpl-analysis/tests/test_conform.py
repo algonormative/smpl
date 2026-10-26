@@ -190,7 +190,7 @@ def test_conform_file_reads_the_provenance_sidecar(tmp_path):
     sf.write(str(wav), shifted(hit_loop(HIT_TIMES), 20), SR, subtype="FLOAT")
     (tmp_path / "loop.wav.provenance.json").write_text(json.dumps(
         {"bpm": 120, "bars": 2, "pitch_classes": ["A"],
-         "recipe": {"bpm": 120, "grid_steps": 16, "tracks": [{"name": "k", "hits": [
+         "recipe": {"bpm": 120, "beats_per_bar": 4, "grid_steps": 16, "tracks": [{"name": "k", "hits": [
              {"bar": 1, "step": 1}, {"bar": 1, "step": 5}, {"bar": 1, "step": 9},
              {"bar": 2, "step": 1}, {"bar": 2, "step": 5}]}]}}))
     r = conform.conform_file(wav, checks=("length", "timing"))

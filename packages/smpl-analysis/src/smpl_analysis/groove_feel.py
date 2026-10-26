@@ -396,10 +396,11 @@ def analyze(y=None, sr: int | None = None, *, intent: dict | None = None,
     features = {
         "rhythm.syncopation_lhl": sync["mean"],
         "rhythm.syncopation_norm": sync["norm"],
-        "rhythm.microtiming_abs_ms": round(float(np.mean(np.abs(timed))), 3) if len(timed) else 0.0,
-        "rhythm.microtiming_mean_ms": round(float(timed.mean()), 3) if len(timed) else 0.0,
-        "rhythm.microtiming_sd_ms": round(float(np.mean(sds)), 3) if sds else 0.0,
-        "rhythm.accent_range_db": round(-min(lvl_rel), 2) if lvl_rel else 0.0,
+        # None, never 0.0, when nothing was measured: a silent clip is not a tight groove
+        "rhythm.microtiming_abs_ms": round(float(np.mean(np.abs(timed))), 3) if len(timed) else None,
+        "rhythm.microtiming_mean_ms": round(float(timed.mean()), 3) if len(timed) else None,
+        "rhythm.microtiming_sd_ms": round(float(np.mean(sds)), 3) if sds else None,
+        "rhythm.accent_range_db": round(-min(lvl_rel), 2) if lvl_rel else None,
     }
 
     doc = {
@@ -486,7 +487,7 @@ def compare_reference(doc: dict, references: list[dict]) -> dict:
         rows.append(row)
     return {"files": [p.get("path") for p in references], "per_step": rows,
             "steps_compared": len(deltas),
-            "mean_abs_delta_ms": round(sum(deltas) / len(deltas), 3) if deltas else 0.0}
+            "mean_abs_delta_ms": round(sum(deltas) / len(deltas), 3) if deltas else None}
 
 
 # --------------------------------------------------------------------------------------

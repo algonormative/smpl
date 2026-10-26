@@ -396,7 +396,7 @@ sliced) gets intent only through `--intent`.
 {
   "v": 1,
   "bpm": 120.0, "beats_per_bar": 4.0, "bars": 4, "grid_steps": 16, "swing": 0.0,
-  "dur_s": 8.0,                                    // bars × beats × 60 / bpm unless stated
+  "dur_s": 8.0,                                    // bars × beats × 60 / bpm when all three are stated
   "hits": [{"t": 0.0, "velocity": 1.0, "track": "kick", "bar": 1, "step": 1}],  // seconds; bar/step when stated
   "pitch_classes": ["C", "D", "E"],                // sharps spelled "#"
   "key": "A minor",

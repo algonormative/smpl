@@ -272,14 +272,16 @@ def onset_deviations(ix: Index, audio: str) -> list[dict] | None:
 
 
 def _match_windows(claimed: list[float], points: list[float], window: float):
-    """For each claimed time the index of the nearest point within ``window`` (else None)."""
-    out = []
-    for c in claimed:
-        best = None
-        for i, t in enumerate(points):
-            if abs(t - c) <= window and (best is None or abs(t - c) < abs(points[best] - c)):
-                best = i
-        out.append(best)
+    """For each claimed time the index of a point within ``window`` (else None), one to one:
+    closest pairs first, so one measured event never confirms two claims."""
+    pairs = sorted((abs(t - c), ci, pi) for ci, c in enumerate(claimed)
+                   for pi, t in enumerate(points) if abs(t - c) <= window)
+    out: list = [None] * len(claimed)
+    used = set()
+    for _, ci, pi in pairs:
+        if out[ci] is None and pi not in used:
+            out[ci] = pi
+            used.add(pi)
     return out
 
 
@@ -306,6 +308,8 @@ def _timing(p, audios, ix, tol):
     devs = onset_deviations(ix, a)
     if devs is None:
         return _need("groove", a)
+    if not devs:
+        return Verdict(UNVERIFIABLE, "no onsets measured, so nothing to check the timing claim against")
     thr = tol["timing_ms"]
     off = [d for d in devs if abs(d["residual_ms"]) >= thr]
     compared = [_cmp("groove.onset_residual_ms", [round(d["residual_ms"], 2) for d in off] or f"all < {thr:g}", None, a)]

@@ -19,7 +19,7 @@ The normalized shape (every field optional; absent means "no intent stated")::
     {
       "v": 1,
       "bpm": 120.0, "beats_per_bar": 4.0, "bars": 4, "grid_steps": 16, "swing": 0.0,
-      "dur_s": 8.0,                        # bars x beats_per_bar x 60 / bpm, unless stated
+      "dur_s": 8.0,                        # bars x beats_per_bar x 60 / bpm when all three are stated
       "hits": [{"t": 0.0, "velocity": 1.0, "track": "kick", "bar": 1, "step": 1}],  # seconds from
                                            # sample 0; bar/step (1-based) only when the source states them
       "pitch_classes": ["C", "D", "E"],    # sharps spelled "#"
@@ -85,7 +85,8 @@ def normalize(doc: dict, source: str | None = None) -> dict:
     beats = pick("beats_per_bar")
     if beats is None and "5/4" in (doc.get("note") or ""):
         beats = 5  # Assembly provenance states its one odd meter only in the note
-    out["beats_per_bar"] = float(beats or 4)
+    if beats is not None:  # never assumed: a 5/4 clip read as 4/4 would fail conform's length check
+        out["beats_per_bar"] = float(beats)
     bars = pick("bars")
     if bars is not None:
         out["bars"] = int(bars)
@@ -95,7 +96,7 @@ def normalize(doc: dict, source: str | None = None) -> dict:
             out[key] = val
     if doc.get("dur_s") is not None:
         out["dur_s"] = float(doc["dur_s"])
-    elif "bpm" in out and "bars" in out:
+    elif "bpm" in out and "bars" in out and "beats_per_bar" in out:
         out["dur_s"] = round(out["bars"] * out["beats_per_bar"] * 60.0 / out["bpm"], 6)
     if isinstance(doc.get("hits"), list):
         out["hits"] = sorted(({"t": float(h["t"]), "velocity": float(h.get("velocity", 1.0)),
