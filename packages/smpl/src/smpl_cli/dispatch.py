@@ -68,6 +68,7 @@ _FIRST_PARTY_TOOLS = {
     "embed": "smpl-embed",
     "gen": "smpl-gen",
     "cloud": "smpl-cloud",
+    "ask": "smpl-ask",
     "synth": "smpl-synth",
     "plugin": "smpl-plugin",
     "transcribe-midi": "smpl-midi",

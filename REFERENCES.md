@@ -65,3 +65,20 @@ rotation test for the intended pitch-class set.
 - **Spectral flux.** S. Dixon, "Onset detection revisited", *Proc. DAFx-06*, 2006, 133-137.
   Used for the flux across the loop wrap (half-wave-rectified difference of log-compressed
   magnitudes between successive frames).
+
+## ask + crosscheck (vault-16dd.6)
+
+- **MUSE: The MUSE Benchmark: Probing Music Perception and Auditory Relational Reasoning in Audio LLMs**
+  — Brandon James Carone, Iran R. Roman, 2025. <https://arxiv.org/abs/2510.19055>.
+  Audio-native models sit near chance on core music perception (Qwen2.5-Omni and Audio Flamingo 3 among them).
+  Used for: the design rule that a model's musical claim is checked against a measurement before it is believed,
+  and the calibration set that measures per-question hit rate against chance.
+- **AudioCapBench: Quick Evaluation on Audio Captioning across Sound, Music, and Speech**
+  — Jielin Qiu, Jianguo Zhang et al., 2026. <https://arxiv.org/abs/2602.23649>.
+  Music is the weakest of the three domains for audio-language models.
+  Used for: restricting the bank to narrow, forced-choice or numeric questions rather than open description.
+- **AudioJudge: Understanding What Works in Large Audio Model Based Speech Evaluation**
+  — Potsawee Manakul, Woody Haosheng Gan et al., 2025. <https://arxiv.org/abs/2507.12705>.
+  Large audio models used as pairwise judges show position bias.
+  Used for: running every A/B question in both presentation orders and treating disagreement as
+  `confidence: low` (`smpl_ask.ask.ask`).
