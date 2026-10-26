@@ -397,7 +397,7 @@ sliced) gets intent only through `--intent`.
   "v": 1,
   "bpm": 120.0, "beats_per_bar": 4.0, "bars": 4, "grid_steps": 16, "swing": 0.0,
   "dur_s": 8.0,                                    // bars × beats × 60 / bpm unless stated
-  "hits": [{"t": 0.0, "velocity": 1.0, "track": "kick"}],   // seconds from sample 0
+  "hits": [{"t": 0.0, "velocity": 1.0, "track": "kick", "bar": 1, "step": 1}],  // seconds; bar/step when stated
   "pitch_classes": ["C", "D", "E"],                // sharps spelled "#"
   "key": "A minor",
   "lufs": -14.0, "true_peak_db": -1.0
@@ -409,6 +409,32 @@ unmeasured rather than guessing. An `.intent.json` may give `hits` in seconds or
 the `smpl pattern` DSL, expanded the way `pattern` places hits (even steps late by
 `swing × step`, plus `nudge` in beats). Intent ops report measured / intended / delta; the
 tolerances that turn a delta into keep or cut live in the skills.
+
+What each intent op emits:
+
+- `conform`: one `feature` frame, role `conform` (`conform.*` keys; every intended and delta
+  key null when no intent is stated), and one `marker` frame, role `conform`, with a point per
+  intended hit whose timing error exceeds `--timing-tol-ms` (`error_ms`, signed, + late).
+- `sheet`: an `image` frame (role `sheet`, or `sheet:ab`) and a `feature` frame of the same
+  role whose `data` is the per-bar document behind every lane; the PNG is for looking, the
+  document is for quoting.
+- `groove-feel`: `feature` role `groove-feel` (the full document, including `text`, the
+  step-grid export) and `groove-feel-features` (registered `rhythm.*` keys).
+- `clash`: per layer pair a `feature` document (role `clash`), the flat `clash.*` scalars
+  (role `clash-features`) and a `marker` frame at the worst spans; per layer with `--seam`, a
+  `clash-seam` frame and a marker at the wrap when flagged.
+
+## Claims (audio-LLM second ear)
+
+`smpl ask` (heavy tier) emits one `text` frame, role `claim`, per answer: `data` is the
+claim in words, `params` carries `question_id`, `answer` (structured), `timestamps`,
+`confidence` (`normal`, or `low` when an A/B pair disagreed across the two orders), `model`,
+`order` and cost. `lineage` names the one or two audio frames asked about. A claim is never
+a measurement: `smpl crosscheck` appends a `feature` frame (role `crosscheck`) per claim with
+`status` (`supported` | `contradicted` | `unverifiable`), `route` (`smpl` for stereo and
+fidelity questions, which the model hears downmixed to mono; `ear` where no smpl measure
+exists), `reason` and the frame values `compared`. Unrefuted claims go to a listening page,
+where the owner's matches? answer scores the claim type.
 
 ## Interop seams (build for these explicitly)
 
