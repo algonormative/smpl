@@ -82,3 +82,33 @@ rotation test for the intended pitch-class set.
   Large audio models used as pairwise judges show position bias.
   Used for: running every A/B question in both presentation orders and treating disagreement as
   `confidence: low` (`smpl_ask.ask.ask`).
+
+## cohesion / coverage / probe (vault-16dd.5)
+
+- **LAION-CLAP** — Y. Wu, K. Chen, T. Zhang, Y. Hui, M. Nezhurina, T. Berg-Kirkpatrick, S. Dubnov, "Large-scale
+  Contrastive Language-Audio Pretraining with Feature Fusion and Keyword-to-Caption Augmentation",
+  ICASSP 2023. <https://arxiv.org/abs/2211.06687> — `smpl embed --model clap` (the
+  `music_audioset_epoch_15_esc_90.14` checkpoint, converted to `transformers.ClapModel`): the joint
+  audio-text space `coverage` and `probe` score in.
+- **MuQ-MuLan** — H. Zhu, Y. Zhou, H. Chen, J. Yu, Z. Ma, R. Gu, Y. Luo, W. Tan, X. Chen, "MuQ:
+  Self-Supervised Music Representation Learning with Mel Residual Vector Quantization", 2025.
+  <https://arxiv.org/abs/2501.01108> — `smpl embed --model muq-mulan` (`OpenMuQ/MuQ-MuLan-large`):
+  a music-text joint space for musical similarity.
+- **MuLan** — Q. Huang, A. Jansen, J. Lee, R. Ganti, J. Y. Li, D. P. W. Ellis, "MuLan: A Joint
+  Embedding of Music Audio and Natural Language", ISMIR 2022. <https://arxiv.org/abs/2208.12415> —
+  the two-tower contrastive design MuQ-MuLan follows.
+- **Kernel Audio Distance (KAD)** — Y. Chung, P. Eu, J. Lee, K. Choi, J. Nam, B. S. Chon, "KAD: No
+  More FAD! An Effective and Efficient Evaluation Metric for Audio Generation", 2025.
+  <https://arxiv.org/abs/2502.15602> — `smpl cohesion --ref`: unbiased MMD² with a Gaussian RBF
+  kernel, σ = median pairwise distance in the reference set, scaled by α = 100.
+- **Unbiased MMD estimator** — A. Gretton, K. M. Borgwardt, M. J. Rasch, B. Schölkopf, A. Smola,
+  "A Kernel Two-Sample Test", JMLR 13, 2012. <https://jmlr.org/papers/v13/gretton12a.html> — the
+  estimator KAD scales.
+- **Modified z-score** — B. Iglewicz and D. C. Hoaglin, *How to Detect and Handle Outliers*, ASQC
+  Quality Press, 1993 — `smpl cohesion`'s outlier z, 0.6745·(d − median)/MAD, flagged above 3.5.
+- **Contrastive text axes in a joint embedding space** — prompt ensembling (L2-normalize, mean,
+  L2-normalize) from A. Radford et al., "Learning Transferable Visual Models From Natural Language
+  Supervision" (CLIP), ICML 2021, <https://arxiv.org/abs/2103.00020>; the bipolar axis
+  normalize(P_pos − P_neg) and per-set standardization as recorded in the vault's
+  `research/2026-06-10-musical-axes/clap-landscape.md` (vault-3hvg) — `smpl probe`, and the family
+  poles `smpl coverage` assigns to.

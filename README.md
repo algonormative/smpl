@@ -195,6 +195,7 @@ composes the pipe, resolves only what's needed, and reads back the report.
 | `sheet` | full-length annotated listening sheet PNG (loudness, CQT + bar grid, onsets vs intended hits, chroma vs intended set, six bands, stereo correlation, self-similarity for clips ≥ 30 s) + per-bar JSON/markdown sidecar; `--ab` loudness-matched A/B (louder one turned down) with a B−A difference panel |
 | `clash` | layer interaction across the selected audio frames: per-pair ERB-band overlap, sub collision, pitch-class clash + Sethares dissonance (markers at the worst spans); `--seam` / one input checks the loop wrap |
 | `groove-feel` | syncopation (Longuet-Higgins/Lee), per-step microtiming mean/sd, accent profile, `--ref` deltas; hits as a compact step-grid + hit-list text an LLM can reason over |
+| `cohesion` `coverage` `probe` | pack metrics over `embed` vectors: centroid distance, robust-z outliers, pairwise spread, KAD vs a `--ref` pack; items per brief family against quotas; scores on a contrastive text axis (positive vs negative prompt) |
 | `crosscheck` | marks audio-LLM `claim` frames supported / contradicted / unverifiable against smpl's own frames; stereo and fidelity questions come back `route: smpl` |
 | `view` | the multimodal LLM/human report |
 | `gen` · `cloud` · `transcribe` · `stems` · `embed` · `synth` · `ask` | PATH-discovered heavy tools (own venvs); `ask` puts one fixed-bank question about a clip or A/B pair (both orders) to an audio LLM and emits `claim` frames, `smpl-ask calibrate` scores it on known-answer clips |

@@ -138,6 +138,15 @@ adding a row is additive and non-breaking).
 | `clash.seam_jump_ratio` / `clash.seam_deriv_ratio` / `clash.seam_flux_ratio` | clash | ratio to the clip's own reference | scalar | vault-16dd.4 |
 | `clash.seam_rms_jump_db` / `clash.seam_rms_excess_db` | clash (unit-suffixed) | dB | scalar | vault-16dd.4 |
 | `clash.seam_flagged` | clash | bool | scalar | vault-16dd.4 |
+| `cohesion.centroid_dist_cos` | cohesion | cosine distance | per item | vault-16dd.5 |
+| `cohesion.outlier_z` | cohesion | modified z (MAD) | per item | vault-16dd.5 |
+| `cohesion.outlier` | cohesion | bool (z over flag, default 3.5) | per item | vault-16dd.5 |
+| `cohesion.pairwise_dist_cos_mean` | cohesion | cosine distance | pack | vault-16dd.5 |
+| `cohesion.kad` / `cohesion.kad_bandwidth` | cohesion | 100·MMD² / euclidean (median ref pair) | pack vs ref | vault-16dd.5 |
+| `coverage.family` | coverage | label | per item | vault-16dd.5 |
+| `coverage.score_cos` / `coverage.margin_cos` | coverage | cosine | per item | vault-16dd.5 |
+| `coverage.families` | coverage | count vs quota per family | map | vault-16dd.5 |
+| `probe.score_cos` / `probe.z` | probe | axis projection / z within the set | per item | vault-16dd.5 |
 | `crosscheck.supported_count` / `.contradicted_count` / `.unverifiable_count` | crosscheck | count | scalar | vault-16dd.6 |
 
 ## Standardized band edges (vault-3tuy)
