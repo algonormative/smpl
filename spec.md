@@ -383,6 +383,33 @@ non-prompt input frames pass through unchanged.
 Backends (local models) and provider keys are an **install/config** concern,
 not a wire-protocol one — see the [README](README.md) for model management and env-var-first key handling.
 
+## Intent sidecars (measured vs intended)
+
+A generator knows what it meant a clip to be; a detector only guesses. Ops that compare
+output to intent (`conform`, `sheet`, `clash`, `groove-feel`) read one normalized **intent**
+document, loaded by `smpl_analysis.intent` from, first found wins: `--intent FILE`,
+`<audio>.intent.json`, then `<audio>.provenance.json` (the smplvst / Assembly sidecar).
+Sidecars are found through the `read` frame's `params.source`, so a derived frame (filtered,
+sliced) gets intent only through `--intent`.
+
+```jsonc
+{
+  "v": 1,
+  "bpm": 120.0, "beats_per_bar": 4.0, "bars": 4, "grid_steps": 16, "swing": 0.0,
+  "dur_s": 8.0,                                    // bars × beats × 60 / bpm unless stated
+  "hits": [{"t": 0.0, "velocity": 1.0, "track": "kick"}],   // seconds from sample 0
+  "pitch_classes": ["C", "D", "E"],                // sharps spelled "#"
+  "key": "A minor",
+  "lufs": -14.0, "true_peak_db": -1.0
+}
+```
+
+Every field is optional; absent means no intent was stated, and the op reports that check as
+unmeasured rather than guessing. An `.intent.json` may give `hits` in seconds or a `recipe` in
+the `smpl pattern` DSL, expanded the way `pattern` places hits (even steps late by
+`swing × step`, plus `nudge` in beats). Intent ops report measured / intended / delta; the
+tolerances that turn a delta into keep or cut live in the skills.
+
 ## Interop seams (build for these explicitly)
 
 | Boundary | Mechanism | Example |
