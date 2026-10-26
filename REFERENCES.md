@@ -46,3 +46,22 @@ rotation test for the intended pitch-class set.
   The pattern-level formalisation of the Longuet-Higgins/Lee measure used here (sum over the
   notes of a looped bar; the largest silent step in each gap) and the model for normalising by
   the maximum a pattern can score (`rhythm.syncopation_norm`).
+
+## clash (vault-16dd.4)
+
+- **Sensory dissonance of partial pairs.** W. A. Sethares, "Local consonance and the
+  relationship between timbre and scale", *J. Acoust. Soc. Am.* 94(3), 1993, 1218-1228.
+  https://doi.org/10.1121/1.408175. Used for `clash.dissonance`: the closed-form fit
+  `d = a1 a2 (exp(-3.5 s df) - exp(-5.75 s df))`, `s = 0.24 / (0.0207 f1 + 18.96)`, summed over
+  simultaneous cross-layer partial pairs.
+- **The curve it fits.** R. Plomp and W. J. M. Levelt, "Tonal consonance and critical
+  bandwidth", *J. Acoust. Soc. Am.* 38(4), 1965, 548-560. https://doi.org/10.1121/1.1909741.
+  Roughness peaks at about a quarter of the critical bandwidth and vanishes at unison and
+  beyond a critical band.
+- **ERB-rate band spacing.** B. R. Glasberg and B. C. J. Moore, "Derivation of auditory filter
+  shapes from notched-noise data", *Hearing Research* 47, 1990, 103-138.
+  https://doi.org/10.1016/0378-5955(90)90170-T. Used for the band edges of the per-band
+  overlap (`ERB-rate = 21.4 log10(1 + 0.00437 f)`, one band per ERB, 30 Hz to 15 kHz).
+- **Spectral flux.** S. Dixon, "Onset detection revisited", *Proc. DAFx-06*, 2006, 133-137.
+  Used for the flux across the loop wrap (half-wave-rectified difference of log-compressed
+  magnitudes between successive frames).
